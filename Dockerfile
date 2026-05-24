@@ -2,20 +2,20 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build-env
 WORKDIR /app
 
-# Sao chép tệp dự án .csproj và khôi phục các thư viện NuGet
-COPY *.csproj ./
+# Sao chép tệp dự án .csproj và khôi phục các thư viện NuGet (dùng ngoặc kép vì có dấu cách)
+COPY "Sử Đại Việt/*.csproj" ./
 RUN dotnet restore
 
-# Sao chép toàn bộ mã nguồn dự án và xuất bản ứng dụng dưới dạng Release
-COPY . ./
+# Sao chép toàn bộ mã nguồn từ thư mục dự án và xuất bản ứng dụng
+COPY "Sử Đại Việt/." ./
 RUN dotnet publish -c Release -o out
 
-# TẦNG 2: Dùng Runtime ASP.NET Core 8.0 siêu nhẹ để chạy ứng dụng ở Production
+# TẦNG 2: Dùng Runtime ASP.NET Core 8.0 siêu nhẹ để chạy ở Production
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
 COPY --from=build-env /app/out .
 
-# Cấu hình cổng truyền tin 8080 mặc định (phục vụ Cloud Run / Docker tối ưu)
+# Cấu hình cổng truyền tin 8080 mặc định
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
 
