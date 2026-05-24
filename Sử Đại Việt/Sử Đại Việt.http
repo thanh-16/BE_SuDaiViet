@@ -1,0 +1,6 @@
+@Sử_Đại_Việt_HostAddress = http://localhost:5042
+
+GET {{Sử_Đại_Việt_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

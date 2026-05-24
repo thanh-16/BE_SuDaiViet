@@ -1,0 +1,19 @@
+## Ignore Visual Studio / Rider / VS Code files
+.vs/
+.vscode/
+*.user
+*.userosscache
+*.sln.docstates
+
+## Ignore compile / build outputs
+bin/
+obj/
+publish/
+out/
+
+## Ignore OS generated files
+.DS_Store
+Thumbs.db
+
+## Ignore local environment settings (if any override)
+appsettings.local.json
