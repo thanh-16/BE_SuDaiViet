@@ -20,8 +20,8 @@ Hệ thống Back-End **Sử Đại Việt** được xây dựng trên nền t�
 Khai báo địa chỉ máy chủ Back-End trong cấu hình môi trường của bạn (ví dụ: `.env` hoặc `.env.local`):
 
 ```env
-# Địa chỉ URL máy chủ Back-End (Local Development)
-VITE_API_BASE_URL=http://localhost:5042
+# Địa chỉ URL máy chủ Back-End (Cloud Production)
+VITE_API_BASE_URL=https://be-sudaiviet.onrender.com
 ```
 
 ### 2.2 Cấu hình phía Back-End (CORS Allowed Origins)
@@ -51,7 +51,7 @@ VITE_API_BASE_URL=http://localhost:5042
 
 ### 3.2 Luồng tác vụ của Web Admin (X-Admin-Key)
 *   **Mô tả:** Toàn bộ API quản trị hệ thống yêu cầu đính kèm mã bảo mật nội bộ trong Header.
-*   **Header đính kèm:** `X-Admin-Key: TaySonNghiaQuanKey1789` (Giá trị này phải khớp với biến môi trường `AdminSettings:AdminKey` cấu hình trên máy chủ BE).
+*   **Header đính kèm:** `X-Admin-Key: sudaivietfptu` (Giá trị này phải khớp với cấu hình `AdminSettings:AdminKey` trên máy chủ BE).
 
 ---
 
@@ -69,7 +69,7 @@ Dưới đây là mã mẫu chi tiết viết bằng **JavaScript/TypeScript** s
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'http://localhost:5042'
+  baseURL: 'https://be-sudaiviet.onrender.com'
 });
 
 async function getHeroAttributes() {
@@ -165,10 +165,10 @@ async function submitHighscore(scoreValue, stageReachedName) {
 
 ```javascript
 const adminApi = axios.create({
-  baseURL: 'http://localhost:5042',
+  baseURL: 'https://be-sudaiviet.onrender.com',
   headers: {
     'Content-Type': 'application/json',
-    'X-Admin-Key': 'TaySonNghiaQuanKey1789' // Mã khóa bảo mật Admin
+    'X-Admin-Key': 'sudaivietfptu' // Mã khóa bảo mật Admin
   }
 });
 ```
