@@ -189,6 +189,93 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Đăng ký trigger tự động kích hoạt sau khi tạo tài khoản Auth trên Supabase thành công
+-- Đăng ký trigger tự động kích hoạt sau khi tạo tài khoản Auth trên Supabase thành công
 CREATE OR REPLACE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+
+-- =====================================================================
+-- NÂNG CẤP BẢO MẬT & KINH TẾ GAME: CỬA HÀNG VẬT PHẨM & GIAO DỊCH
+-- =====================================================================
+
+-- 1. Bổ sung trường GoldBalance và GemBalance vào profiles
+ALTER TABLE public.profiles 
+ADD COLUMN IF NOT EXISTS gold_balance INTEGER DEFAULT 0 NOT NULL,
+ADD COLUMN IF NOT EXISTS gem_balance INTEGER DEFAULT 0 NOT NULL;
+
+-- 2. Bảng Danh mục Vật phẩm Game (game_items)
+CREATE TABLE IF NOT EXISTS public.game_items (
+    id VARCHAR(50) PRIMARY KEY,                                    -- Mã vật phẩm (Ví dụ: 'sword_001', 'hp_potion')
+    name VARCHAR(100) NOT NULL,                                   -- Tên vật phẩm
+    description TEXT,                                             -- Mô tả vật phẩm
+    price_gold INTEGER DEFAULT 0 NOT NULL,                        -- Giá bằng Vàng (Gold)
+    price_gem INTEGER DEFAULT 0 NOT NULL,                         -- Giá bằng Ngọc (Gem)
+    price_vnd INTEGER DEFAULT 0 NOT NULL,                         -- Giá bằng Tiền mặt VND (cho vật phẩm nạp trực tiếp)
+    item_type VARCHAR(30) DEFAULT 'Consumable' NOT NULL,           -- Loại: 'Equipment', 'Consumable', 'Skin'
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Kích hoạt RLS bảo mật danh mục vật phẩm
+ALTER TABLE public.game_items ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Cho phép tất cả mọi người đọc danh mục vật phẩm" ON public.game_items;
+CREATE POLICY "Cho phép tất cả mọi người đọc danh mục vật phẩm" 
+    ON public.game_items FOR SELECT 
+    USING (true);
+
+DROP POLICY IF EXISTS "Chỉ hệ thống được quyền thao tác vật phẩm" ON public.game_items;
+CREATE POLICY "Chỉ hệ thống được quyền thao tác vật phẩm" 
+    ON public.game_items FOR ALL 
+    USING (false);
+
+-- Chèn dữ liệu vật phẩm mẫu ban đầu
+INSERT INTO public.game_items (id, name, description, price_gold, price_gem, price_vnd, item_type)
+VALUES
+    ('pot_hp_01', 'Bình Trị Thương Lớn', 'Hồi phục 50% sinh lực trong trận chiến trận Rạch Gầm', 500, 0, 0, 'Consumable'),
+    ('sword_hue_01', 'Thuận Thiên Kiếm (Nguyễn Huệ Skin)', 'Diện mạo cực kỳ uy nghi của Quang Trung hoàng đế', 0, 500, 50000, 'Skin'),
+    ('armor_nhac_01', 'Long Lân Giáp', 'Tăng 20% khả năng chống đỡ sát thương', 2000, 50, 0, 'Equipment')
+ON CONFLICT (id) DO NOTHING;
+
+-- 3. Bảng Kho đồ sở hữu người chơi (player_inventories)
+CREATE TABLE IF NOT EXISTS public.player_inventories (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+    item_id VARCHAR(50) REFERENCES public.game_items(id) ON DELETE CASCADE NOT NULL,
+    quantity INTEGER DEFAULT 1 NOT NULL,
+    acquired_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    CONSTRAINT unique_user_item UNIQUE (user_id, item_id)
+);
+
+-- Kích hoạt RLS bảo mật kho đồ
+ALTER TABLE public.player_inventories ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Người dùng chỉ được xem kho đồ của mình" ON public.player_inventories;
+CREATE POLICY "Người dùng chỉ được xem kho đồ của mình" 
+    ON public.player_inventories FOR SELECT 
+    TO authenticated 
+    USING (auth.uid() = user_id);
+
+-- 4. Bảng Nhật ký Giao dịch & Nạp tiền (transactions)
+CREATE TABLE IF NOT EXISTS public.transactions (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+    transaction_type VARCHAR(30) NOT NULL,                        -- 'Topup', 'Purchase'
+    amount_vnd INTEGER DEFAULT 0 NOT NULL,                        -- Số tiền VND (Nếu nạp tiền)
+    amount_gold INTEGER DEFAULT 0 NOT NULL,                       -- Biến động số lượng Vàng (Gold)
+    amount_gem INTEGER DEFAULT 0 NOT NULL,                        -- Biến động số lượng Ngọc (Gem)
+    payment_method VARCHAR(50) NULL,                              -- 'Momo', 'Card', 'Banking'
+    reference_id VARCHAR(100) NULL,                               -- Mã giao dịch đối chiếu
+    status VARCHAR(20) DEFAULT 'Completed' NOT NULL,              -- 'Pending', 'Completed', 'Failed'
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Kích hoạt RLS bảo mật giao dịch
+ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Người dùng chỉ được xem lịch sử giao dịch của mình" ON public.transactions;
+CREATE POLICY "Người dùng chỉ được xem lịch sử giao dịch của mình" 
+    ON public.transactions FOR SELECT 
+    TO authenticated 
+    USING (auth.uid() = user_id);
+

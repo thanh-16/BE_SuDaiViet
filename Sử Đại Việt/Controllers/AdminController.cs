@@ -8,6 +8,7 @@ using Microsoft.Extensions.Configuration;
 using Sử_Đại_Việt.Data;
 using Sử_Đại_Việt.Models;
 using Sử_Đại_Việt.Services;
+using Sử_Đại_Việt.Dtos;
 
 using Microsoft.AspNetCore.RateLimiting;
 
@@ -21,12 +22,14 @@ namespace Sử_Đại_Việt.Controllers
         private readonly ApplicationDbContext _context;
         private readonly IConfiguration _configuration;
         private readonly IAdminLogService _adminLogService;
+        private readonly IShopService _shopService;
 
-        public AdminController(ApplicationDbContext context, IConfiguration configuration, IAdminLogService adminLogService)
+        public AdminController(ApplicationDbContext context, IConfiguration configuration, IAdminLogService adminLogService, IShopService shopService)
         {
             _context = context;
             _configuration = configuration;
             _adminLogService = adminLogService;
+            _shopService = shopService;
         }
 
         // Helper check X-Admin-Key
@@ -213,6 +216,108 @@ namespace Sử_Đại_Việt.Controllers
             };
 
             return Ok(result);
+        }
+
+        /// <summary>
+        /// Xem lịch sử giao dịch và nạp tiền của toàn hệ thống (Hỗ trợ phân trang và tìm kiếm theo loại giao dịch, mã giao dịch, tên người chơi).
+        /// </summary>
+        [HttpGet("transactions")]
+        public async Task<ActionResult<PaginatedResult<Transaction>>> GetTransactions(
+            [FromQuery] string? search = null,
+            [FromQuery] int pageIndex = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            if (!IsAuthorizedAdmin())
+            {
+                return StatusCode(401, "Truy cập bị từ chối. Mã quản trị X-Admin-Key không chính xác hoặc trống.");
+            }
+
+            if (pageIndex < 1) pageIndex = 1;
+            if (pageSize < 1) pageSize = 20;
+            if (pageSize > 100) pageSize = 100;
+
+            var totalItems = await _shopService.GetTransactionsCountAsync(search);
+            var items = await _shopService.GetTransactionsAsync(search, pageIndex, pageSize);
+
+            var result = new PaginatedResult<Transaction>
+            {
+                Items = items,
+                TotalItems = totalItems,
+                PageIndex = pageIndex,
+                PageSize = pageSize
+            };
+
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// Điều chỉnh giá của một vật phẩm trong shop (Vàng, Ngọc, VNĐ).
+        /// </summary>
+        [HttpPut("items/{id}/price")]
+        public async Task<IActionResult> UpdateItemPrice(string id, [FromBody] UpdateItemPriceDto model)
+        {
+            if (!IsAuthorizedAdmin())
+            {
+                return StatusCode(401, "Truy cập bị từ chối. Mã quản trị X-Admin-Key không chính xác hoặc trống.");
+            }
+
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            try
+            {
+                var item = await _shopService.UpdateItemPriceAsync(id, model.PriceGold, model.PriceGem, model.PriceVnd, "Admin_System");
+                return Ok(new { message = $"Cập nhật giá vật phẩm '{item.Name}' thành công!", item = item });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Lỗi hệ thống khi cập nhật giá vật phẩm.", detail = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Tăng hoặc giảm trực tiếp số dư Vàng/Ngọc của người chơi (Bảo vệ bằng X-Admin-Key).
+        /// </summary>
+        [HttpPut("players/{id}/balance")]
+        public async Task<IActionResult> AdjustPlayerBalance(Guid id, [FromBody] AdjustBalanceDto model)
+        {
+            if (!IsAuthorizedAdmin())
+            {
+                return StatusCode(401, "Truy cập bị từ chối. Mã quản trị X-Admin-Key không chính xác hoặc trống.");
+            }
+
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            try
+            {
+                var profile = await _shopService.AdjustPlayerBalanceAsync(id, model.GoldAmount, model.GemAmount, model.Reason, "Admin_System");
+                return Ok(new
+                {
+                    message = $"Điều chỉnh số dư của người chơi '{profile.DisplayName}' thành công!",
+                    profile = profile
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Lỗi hệ thống khi điều chỉnh số dư người chơi.", detail = ex.Message });
+            }
         }
     }
 

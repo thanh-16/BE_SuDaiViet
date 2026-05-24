@@ -353,4 +353,208 @@ try {
 2.  **Debounce/Throttle:** Sử dụng kỹ thuật Debounce hoặc Throttle đối với các ô tìm kiếm người chơi/audit logs trong Web Admin để tránh việc mỗi ký tự gõ phím đều kích hoạt một API request lên máy chủ. (Tối ưu nhất là gọi API sau khi người dùng ngừng gõ phím 500ms).
 
 ---
+
+## 🛒 7. HỆ THỐNG CỬA HÀNG, KHO ĐỒ, SỐ DƯ & NẠP TIỀN (NEW)
+
+Hệ thống cửa hàng và kinh tế trong game sử dụng mô hình đồng bộ số dư trên Supabase (`profiles`) kết hợp kiểm tra xác thực JWT đầu cuối để chống hack.
+
+### 7.1 Game Client (Dành cho Người chơi)
+
+#### A. Xem Danh sách Vật phẩm đang bán (Không cần xác thực)
+*   **Endpoint:** `GET /api/Shop/items`
+*   **Định dạng phản hồi:** Mảng danh sách vật phẩm:
+    ```json
+    [
+      {
+        "id": "pot_hp_01",
+        "name": "Thần Dược Trị Thương",
+        "description": "Hồi phục 100% sinh lực tức thì cho nghĩa sĩ Tây Sơn.",
+        "priceGold": 100,
+        "priceGem": 10,
+        "priceVnd": 0,
+        "itemType": "Consumable",
+        "createdAt": "2026-05-24T17:00:00Z"
+      }
+    ]
+    ```
+
+```javascript
+async function getShopItems() {
+  try {
+    const response = await api.get('/api/Shop/items');
+    console.log("Danh sách vật phẩm trong Shop:", response.data);
+    return response.data;
+  } catch (error) {
+    console.error("Lỗi lấy danh mục shop:", error);
+  }
+}
+```
+
+#### B. Xem Kho đồ Cá nhân (Yêu cầu JWT Token)
+*   **Endpoint:** `GET /api/Shop/inventory`
+*   **Định dạng phản hồi:** Mảng danh sách kho đồ kèm thông tin chi tiết vật phẩm liên kết:
+    ```json
+    [
+      {
+        "id": 1,
+        "userId": "uuid-nguoi-choi",
+        "itemId": "pot_hp_01",
+        "quantity": 5,
+        "acquiredAt": "2026-05-24T17:15:30Z",
+        "itemDetails": {
+          "id": "pot_hp_01",
+          "name": "Thần Dược Trị Thương",
+          "itemType": "Consumable"
+          // ...
+        }
+      }
+    ]
+    ```
+
+```javascript
+async function getMyInventory() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return alert("Vui lòng đăng nhập!");
+
+  try {
+    const response = await api.get('/api/Shop/inventory', {
+      headers: { 'Authorization': `Bearer ${session.access_token}` }
+    });
+    console.log("Kho đồ của tôi:", response.data);
+    return response.data;
+  } catch (error) {
+    console.error("Lỗi lấy kho đồ:", error);
+  }
+}
+```
+
+#### C. Mua Vật phẩm bằng Vàng hoặc Ngọc (Yêu cầu JWT Token)
+*   **Endpoint:** `POST /api/Shop/buy`
+*   **Tham số truyền lên (Body):**
+    *   `itemId` (string): Mã vật phẩm (ví dụ: `pot_hp_01`).
+    *   `currency` (string): Loại tiền tệ thanh toán, chỉ nhận `"Gold"` hoặc `"Gem"`.
+*   **Mô tả:** Back-End thực hiện trừ số dư người chơi và tăng số lượng trong kho đồ dưới một Transaction ACID duy nhất.
+
+```javascript
+async function purchaseItem(itemId, currencyType) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return alert("Vui lòng đăng nhập!");
+
+  try {
+    const response = await api.post('/api/Shop/buy', 
+      { itemId: itemId, currency: currencyType },
+      { headers: { 'Authorization': `Bearer ${session.access_token}` } }
+    );
+    alert(response.data.message); // "Mua vật phẩm thành công!"
+    return response.data.transaction;
+  } catch (error) {
+    alert("Mua đồ thất bại: " + (error.response?.data?.message || "Lỗi kết nối"));
+  }
+}
+```
+
+#### D. Giả lập Nạp tiền Mặt (VND) quy đổi số dư (Yêu cầu JWT Token)
+*   **Endpoint:** `POST /api/Shop/topup`
+*   **Tỷ lệ quy đổi:** `10,000 VND = 1,000 Vàng & 100 Ngọc` (Quy đổi tự động liên tục theo tỷ lệ `Vàng = VND/10`, `Ngọc = VND/100`).
+*   **Tham số truyền lên (Body):**
+    *   `amountVnd` (number): Số tiền nạp mặt VND (Tối thiểu 1,000).
+    *   `paymentMethod` (string): Cổng thanh toán (ví dụ: `"Momo"`, `"Banking"`, `"Card"`).
+    *   `referenceId` (string, optional): Mã giao dịch đối chiếu ngoài.
+
+```javascript
+async function simulateTopup(amount, method = "Momo") {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return alert("Vui lòng đăng nhập!");
+
+  try {
+    const response = await api.post('/api/Shop/topup', 
+      {
+        amountVnd: amount,
+        paymentMethod: method,
+        referenceId: `MOMO-${Date.now()}`
+      },
+      { headers: { 'Authorization': `Bearer ${session.access_token}` } }
+    );
+    alert(response.data.message); // Hiển thị số dư quy đổi cộng thêm hào hùng
+    return response.data.transaction;
+  } catch (error) {
+    alert("Nạp tiền thất bại: " + (error.response?.data?.message || "Lỗi kết nối"));
+  }
+}
+```
+
+---
+
+### 7.2 Web Admin Dashboard (Dành cho Quản trị viên)
+
+#### A. Xem, Tìm kiếm & Phân trang Lịch sử Giao dịch (Transactions Management)
+*   **Endpoint:** `GET /api/Admin/transactions`
+*   **Tham số truy vấn (Query Parameters):**
+    *   `search`: Tìm kiếm tương đối theo mã giao dịch (`referenceId`), loại giao dịch (`transactionType`), phương thức thanh toán (`paymentMethod`), hoặc tên/email người chơi.
+    *   `pageIndex`: Chỉ số trang hiện tại (mặc định `1`).
+    *   `pageSize`: Số lượng bản ghi mỗi trang (mặc định `20`).
+
+```javascript
+async function fetchTransactionsHistory(keyword = "", page = 1, size = 20) {
+  try {
+    const response = await adminApi.get('/api/Admin/transactions', {
+      params: { search: keyword, pageIndex: page, pageSize: size }
+    });
+    // Trả về { items: [...], totalItems: 1450, pageIndex: 1, pageSize: 20, totalPages: 73 }
+    return response.data;
+  } catch (error) {
+    console.error("Lỗi lấy lịch sử giao dịch:", error);
+  }
+}
+```
+
+#### B. Cân bằng Giá bán Vật phẩm trong Shop
+*   **Endpoint:** `PUT /api/Admin/items/{id}/price`
+*   **Tham số truyền lên (Body):**
+    *   `priceGold` (number): Giá Vàng mới.
+    *   `priceGem` (number): Giá Ngọc mới.
+    *   `priceVnd` (number): Giá mua trực tiếp VND mới.
+*   **Mô tả:** Thay đổi giá vật phẩm lập tức trong game và tự động ghi nhật ký kiểm toán hành động Admin.
+
+```javascript
+async function updateItemShopPrice(itemId, goldPrice, gemPrice, vndPrice) {
+  try {
+    const response = await adminApi.put(`/api/Admin/items/${itemId}/price`, {
+      priceGold: goldPrice,
+      priceGem: gemPrice,
+      priceVnd: vndPrice
+    });
+    alert(response.data.message); // "Cập nhật giá vật phẩm thành công!"
+    return response.data.item;
+  } catch (error) {
+    alert("Cân bằng giá thất bại: " + (error.response?.data?.message || "Lỗi hệ thống"));
+  }
+}
+```
+
+#### C. Tăng/Giảm trực tiếp số dư người chơi (Có kiểm soát)
+*   **Endpoint:** `PUT /api/Admin/players/{id}/balance`
+*   **Tham số truyền lên (Body):**
+    *   `goldAmount` (number): Số Vàng cộng thêm (dùng số âm để trừ bớt, ví dụ: `-500`).
+    *   `gemAmount` (number): Số Ngọc cộng thêm (dùng số âm để trừ bớt, ví dụ: `-50`).
+    *   `reason` (string): Lý do điều chỉnh số dư bắt buộc (phục vụ audit log).
+
+```javascript
+async function adjustPlayerCurrency(playerId, goldChange, gemChange, reasonText) {
+  try {
+    const response = await adminApi.put(`/api/Admin/players/${playerId}/balance`, {
+      goldAmount: goldChange,
+      gemAmount: gemChange,
+      reason: reasonText
+    });
+    alert(response.data.message); // "Điều chỉnh số dư của người chơi thành công!"
+    return response.data.profile;
+  } catch (error) {
+    alert("Điều chỉnh thất bại: " + (error.response?.data?.message || "Lỗi hệ thống"));
+  }
+}
+```
+
+---
 *Tài liệu được thiết kế đồng bộ và bảo mật tuyệt đối cho hệ sinh thái Sử Đại Việt. Chúc nghĩa sĩ tích hợp thành công mỹ mãn!*
+

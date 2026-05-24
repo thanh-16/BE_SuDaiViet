@@ -43,6 +43,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
 builder.Services.AddScoped<IConfigService, ConfigService>();
 builder.Services.AddScoped<IAdminLogService, AdminLogService>();
+builder.Services.AddScoped<IShopService, ShopService>();
 
 // 3. ĐĂNG KÝ DỊCH VỤ HEALTHCHECKS (Giám sát tình trạng hệ thống và kết nối Database)
 builder.Services.AddHealthChecks()
