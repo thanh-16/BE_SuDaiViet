@@ -17,3 +17,6 @@ Thumbs.db
 
 ## Ignore local environment settings (if any override)
 appsettings.local.json
+
+## Ignore tool-generated unique IDs
+*.uid

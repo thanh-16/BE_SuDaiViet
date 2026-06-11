@@ -28,6 +28,21 @@ namespace Sử_Đại_Việt.Services
         Task<Transaction> ProcessTopupAsync(Guid userId, int amountVnd, string paymentMethod, string? referenceId);
 
         /// <summary>
+        /// Tạo một giao dịch nạp tiền mới ở trạng thái Pending.
+        /// </summary>
+        Task<Transaction> CreatePendingTopupAsync(Guid userId, int amountVnd);
+
+        /// <summary>
+        /// Xác nhận giao dịch nạp tiền thành công từ PayOS và cộng tiền cho người chơi.
+        /// </summary>
+        Task<Transaction> CompleteTopupAsync(long transactionId, string referenceId);
+
+        /// <summary>
+        /// Hủy giao dịch nạp tiền (thành trạng thái Failed).
+        /// </summary>
+        Task<Transaction> CancelTopupAsync(long transactionId);
+
+        /// <summary>
         /// [Admin] Lấy danh sách giao dịch phân trang.
         /// </summary>
         Task<IEnumerable<Transaction>> GetTransactionsAsync(string? search, int pageIndex, int pageSize);
@@ -46,5 +61,20 @@ namespace Sử_Đại_Việt.Services
         /// [Admin] Tăng/giảm số dư Vàng/Ngọc của người chơi.
         /// </summary>
         Task<Profile> AdjustPlayerBalanceAsync(Guid userId, int goldAmount, int gemAmount, string reason, string adminUsername);
+
+        /// <summary>
+        /// [Admin] Tặng điểm kinh nghiệm (XP) cho người chơi và tự động thăng cấp nếu đủ điều kiện.
+        /// </summary>
+        Task<Profile> AwardPlayerXpAsync(Guid userId, int xpAmount, string adminUsername);
+
+        /// <summary>
+        /// [Admin] Tạo mới vật phẩm bán trong shop kèm thuộc tính JSONB động.
+        /// </summary>
+        Task<GameItem> CreateShopItemAsync(GameItem item, string adminUsername);
+
+        /// <summary>
+        /// [Admin] Xóa bỏ một vật phẩm khỏi cửa hàng game.
+        /// </summary>
+        Task DeleteShopItemAsync(string itemId, string adminUsername);
     }
 }

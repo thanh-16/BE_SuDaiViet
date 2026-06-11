@@ -555,6 +555,335 @@ async function adjustPlayerCurrency(playerId, goldChange, gemChange, reasonText)
 }
 ```
 
+#### D. Đăng bán vật phẩm mới kèm chỉ số động JSON (Bảo vệ bằng X-Admin-Key)
+*   **Endpoint:** `POST /api/Admin/items`
+*   **Tham số truyền lên (Body):**
+    *   `id` (string): Mã duy nhất của vật phẩm (ví dụ: `sword_hue_02`).
+    *   `name` (string): Tên vật phẩm.
+    *   `description` (string, optional): Mô tả chi tiết.
+    *   `priceGold` (number): Giá mua bằng Vàng.
+    *   `priceGem` (number): Giá mua bằng Ngọc.
+    *   `priceVnd` (number): Giá mua trực tiếp VND.
+    *   `itemType` (string): Loại vật phẩm (`"Equipment"`, `"Consumable"`, `"Skin"`).
+    *   `attributes` (string, optional): Chuỗi JSON chứa thuộc tính động. Ví dụ: `{"attack_boost": 25, "level_requirement": 5}`.
+
+```javascript
+async function createNewShopItem(itemData) {
+  try {
+    const response = await adminApi.post('/api/Admin/items', itemData);
+    alert(response.data.message); // "Tạo mới vật phẩm thành công!"
+    return response.data.item;
+  } catch (error) {
+    alert("Không thể đăng bán vật phẩm: " + (error.response?.data?.message || "Lỗi hệ thống"));
+  }
+}
+```
+
+#### E. Ngừng bán và xóa vật phẩm khỏi hệ thống (Bảo vệ bằng X-Admin-Key)
+*   **Endpoint:** `DELETE /api/Admin/items/{id}`
+
+```javascript
+async function deleteShopItem(itemId) {
+  try {
+    const response = await adminApi.delete(`/api/Admin/items/${itemId}`);
+    alert(response.data.message); // "Đã xóa vật phẩm thành công khỏi shop."
+    return response.data;
+  } catch (error) {
+    alert("Không thể xóa vật phẩm: " + (error.response?.data?.message || "Lỗi hệ thống"));
+  }
+}
+```
+
+#### F. Tặng điểm kinh nghiệm (XP) cho người chơi & Tự động thăng cấp (Bảo vệ bằng X-Admin-Key)
+*   **Endpoint:** `PUT /api/Admin/players/{id}/xp`
+*   **Công thức thăng cấp tự động:** `XP_Yêu_Cầu = Level * 1000`. Khi vượt ngưỡng, người chơi thăng cấp và số dư XP cộng dồn tiếp tục.
+*   **Tham số truyền lên (Body):**
+    *   `xpAmount` (number): Số lượng XP tặng (phải lớn hơn 0).
+
+```javascript
+async function awardPlayerXp(playerId, xpToAdd) {
+  try {
+    const response = await adminApi.put(`/api/Admin/players/${playerId}/xp`, {
+      xpAmount: xpToAdd
+    });
+    
+    const profile = response.data.profile;
+    alert(`Đã cộng ${xpToAdd} XP! Người chơi hiện đạt Cấp ${profile.level} (XP: ${profile.experience}).`);
+    return profile;
+  } catch (error) {
+    alert("Thao tác thất bại: " + (error.response?.data?.message || "Lỗi hệ thống"));
+  }
+}
+```
+
+---
+
+## ⚔️ 8. HỆ THỐNG TƯỚNG & KỸ NĂNG (HEROES & SKILLS)
+
+Hệ thống quản lý chỉ số tướng và nâng cấp kỹ năng của nghĩa sĩ Tây Sơn (Nguyễn Huệ, Nguyễn Nhạc, Nguyễn Lữ) được xác thực chặt chẽ qua JWT của Supabase.
+
+### 8.1 Xem danh sách tướng đã mở khóa
+*   **Endpoint:** `GET /api/Hero`
+*   **Xác thực:** Yêu cầu Supabase JWT trong Header `Authorization: Bearer <token>`
+*   **Phản hồi thành công (200 OK):** Mảng danh sách tướng đã sở hữu kèm cấp độ kỹ năng chủ động/bị động:
+    ```json
+    [
+      {
+        "id": 1,
+        "userId": "uuid-nguoi-choi",
+        "heroKey": "hue",
+        "level": 1,
+        "experience": 0,
+        "skillActiveLevel": 1,
+        "skillPassiveLevel": 1,
+        "unlockedAt": "2026-05-24T17:00:00Z"
+      }
+    ]
+    ```
+
+### 8.2 Mở khóa vị tướng mới (hue, nhac, lu)
+*   **Endpoint:** `POST /api/Hero/unlock/{heroKey}`
+*   **Tham số đường dẫn:** `heroKey` chỉ chấp nhận một trong ba giá trị `"hue"`, `"nhac"`, hoặc `"lu"`.
+*   **Phản hồi mẫu:**
+    ```json
+    {
+      "message": "Đã mở khóa tướng HUE thành công!",
+      "hero": {
+        "id": 1,
+        "heroKey": "hue",
+        "skillActiveLevel": 1,
+        "skillPassiveLevel": 1
+      }
+    }
+    ```
+
+### 8.3 Nâng cấp kỹ năng tướng
+*   **Endpoint:** `POST /api/Hero/upgrade-skill`
+*   **Tham số truyền lên (Body):**
+    *   `playerHeroId` (number): ID duy nhất của tướng sở hữu.
+    *   `skillKey` (string): Loại kỹ năng nâng cấp, nhận `"skill_active"` hoặc `"skill_passive"`.
+*   **Cơ chế bảo mật:** Phí nâng cấp kỹ năng (Vàng) tăng dần theo cấp độ kỹ năng hiện tại. Back-End áp dụng cơ chế **Pessimistic Row-Locking (`FOR UPDATE`)** lên dòng hồ sơ người chơi để đảm bảo không bị trừ tiền hai lần hoặc nâng cấp kỹ năng vượt quá giới hạn tiền tệ khi bấm nút nâng cấp liên tục.
+
+```javascript
+async function upgradeHeroSkill(heroId, skillType) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return alert("Vui lòng đăng nhập!");
+
+  try {
+    const response = await api.post('/api/Hero/upgrade-skill', 
+      { playerHeroId: heroId, skillKey: skillType },
+      { headers: { 'Authorization': `Bearer ${session.access_token}` } }
+    );
+    alert(response.data.message); // "Đã nâng cấp kỹ năng thành công!"
+    return response.data.hero;
+  } catch (error) {
+    alert("Nâng cấp thất bại: " + (error.response?.data?.message || "Lỗi hệ thống"));
+  }
+}
+```
+
+---
+
+## 🛡️ 9. HỆ THỐNG TRANG BỊ TƯỚNG (HERO EQUIPMENTS)
+
+Mỗi nghĩa sĩ Tây Sơn sở hữu 3 slot trang bị: `"Weapon"` (Binh khí), `"Armor"` (Giáp trụ), và `"Accessory"` (Trang sức).
+
+### 9.1 Mặc trang bị từ kho đồ vào tướng
+*   **Endpoint:** `POST /api/Hero/equip`
+*   **Tham số truyền lên (Body):**
+    *   `playerHeroId` (number): ID tướng được trang bị.
+    *   `inventoryItemId` (number): ID món đồ trong kho đồ cá nhân (`player_inventories.id`).
+    *   `slotType` (string): Vị trí mặc, chỉ nhận `"Weapon"`, `"Armor"`, hoặc `"Accessory"`.
+
+> [!WARNING]
+> **Ràng buộc Độc quyền ở tầng Database:** Để ngăn chặn lỗi dupe trang bị (1 món đồ mặc đồng thời cho nhiều tướng), Database đã thiết lập một chỉ mục duy nhất:
+> `CREATE UNIQUE INDEX unique_equipped_item ON hero_equipments(inventory_item_id);`
+> Nếu Front-End cố tình gửi yêu cầu mặc một món đồ đang được mặc trên tướng khác, Back-End sẽ từ chối lập tức và trả về mã lỗi 400 Bad Request.
+
+```javascript
+async function equipHeroItem(heroId, invItemId, slotName) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return;
+
+  try {
+    const response = await api.post('/api/Hero/equip', 
+      { playerHeroId: heroId, inventoryItemId: invItemId, slotType: slotName },
+      { headers: { 'Authorization': `Bearer ${session.access_token}` } }
+    );
+    alert("Đã trang bị thành công!");
+    return response.data.equipment;
+  } catch (error) {
+    alert("Không thể trang bị: " + (error.response?.data?.message || "Lỗi dữ liệu"));
+  }
+}
+```
+
+### 9.2 Tháo trang bị khỏi tướng
+*   **Endpoint:** `POST /api/Hero/unequip`
+*   **Tham số truyền lên (Body):**
+    *   `playerHeroId` (number): ID tướng tháo trang bị.
+    *   `slotType` (string): Vị trí tháo (`"Weapon"`, `"Armor"`, `"Accessory"`).
+
+---
+
+## 📬 10. HỆ THỐNG HÒM THƯ CÁ NHÂN & BROADCAST AN TOÀN (MAILBOX)
+
+Hệ thống hòm thư của **Sử Đại Việt** hỗ trợ gửi thư kèm tệp đính kèm (Vàng, Ngọc, Trang bị mẫu). Back-End áp dụng cơ chế đặc thù để loại bỏ 100% rủi ro nhận trùng quà (dupe item).
+
+### 10.1 Xem hòm thư cá nhân
+*   **Endpoint:** `GET /api/Mail`
+*   **Phản hồi mẫu:**
+    ```json
+    [
+      {
+        "id": 12,
+        "title": "Quà Vinh Danh Rạch Gầm",
+        "content": "Cảm ơn nghĩa sĩ đã tham gia chiến dịch!",
+        "goldAttachment": 1000,
+        "gemAttachment": 50,
+        "itemAttachmentId": "armor_nhac_01",
+        "isRead": false,
+        "isClaimed": false,
+        "isBroadcast": false,
+        "createdAt": "2026-05-24T17:00:00Z"
+      }
+    ]
+    ```
+
+### 10.2 Đọc thư (Đánh dấu đã đọc)
+*   **Endpoint:** `PUT /api/Mail/{id}/read`
+
+### 10.3 Nhận quà đính kèm an toàn
+*   **Endpoint:** `POST /api/Mail/{id}/claim`
+*   **Kiến trúc chống Spam click đồng thời (CCU cao):**
+    1.  **Thư cá nhân (`isBroadcast = false`):** Hệ thống thực thi lệnh khóa dòng **`SELECT FOR UPDATE`** lên dòng thư trong bảng `mailbox`. Toàn bộ các yêu cầu gửi tiếp theo trong cùng mili-giây sẽ phải xếp hàng đợi. Khi yêu cầu đầu tiên hoàn thành và đánh dấu `is_claimed = true`, các yêu cầu sau sẽ bị từ chối ngay lập tức.
+    2.  **Thư Broadcast (`isBroadcast = true` - Gửi quà toàn server):** Để tránh deadlock khi hàng vạn người chơi cùng nhận một thư chung, Back-End sử dụng chèn nguyên tử:
+        ```sql
+        INSERT INTO public.player_broadcast_claims (user_id, mail_id, is_read, is_claimed, claimed_at)
+        VALUES (:uid, :mid, true, true, now())
+        ON CONFLICT (user_id, mail_id) DO NOTHING
+        ```
+        Chỉ khi dòng dữ liệu được chèn thành công (số dòng bị ảnh hưởng > 0), quà tặng mới được trao cho ví và kho đồ của người chơi.
+
+---
+
+## 🏪 11. HỆ THỐNG CHỢ GIAO DỊCH VẬT PHẨM P2P (MARKETPLACE)
+
+Hệ thống Chợ P2P cho phép người chơi trao đổi, mua bán các vật phẩm trang bị dư thừa trong rương đồ lấy Vàng hoặc Ngọc.
+
+### 11.1 Xem danh sách chợ đang hoạt động (Công khai, phân trang)
+*   **Endpoint:** `GET /api/Marketplace/listings`
+*   **Tham số truy vấn (Query Params):** `search` (tên món đồ hoặc người bán), `pageIndex`, `pageSize`.
+*   **Phản hồi mẫu:**
+    ```json
+    {
+      "items": [
+        {
+          "id": 5,
+          "sellerId": "uuid-nguoi-ban",
+          "priceGold": 1500,
+          "priceGem": 10,
+          "listingFee": 10,
+          "status": "Active",
+          "inventoryItem": {
+            "itemDetails": {
+              "name": "Long Lân Giáp",
+              "itemType": "Equipment"
+            }
+          },
+          "createdAt": "2026-05-24T17:10:00Z"
+        }
+      ],
+      "totalItems": 1
+    }
+    ```
+
+### 11.2 Đăng bán vật phẩm từ rương đồ lên chợ
+*   **Endpoint:** `POST /api/Marketplace/list`
+*   **Tham số truyền lên (Body):**
+    *   `inventoryItemId` (number): ID duy nhất của vật phẩm trong rương của bạn.
+    *   `priceGold` (number): Giá bán bằng Vàng.
+    *   `priceGem` (number): Giá bán bằng Ngọc.
+*   **Cơ chế ràng buộc:**
+    *   Món đồ đang mặc trên người tướng không thể đăng bán (Front-End cần nhắc người chơi tháo giáp/vũ khí trước khi niêm yết).
+    *   Hệ thống tự động trừ phí niêm yết tượng trưng 10 Vàng từ ví người bán để phòng chống spam đăng bài rác.
+
+### 11.3 Mua vật phẩm từ chợ (Xử lý Race-Condition & Double Spending)
+*   **Endpoint:** `POST /api/Marketplace/buy/{listingId}`
+*   **Luồng xử lý nguyên tử của Back-End:**
+    1.  Khóa bài đăng trên chợ: `SELECT 1 FROM public.marketplace_listings WHERE id = :id FOR UPDATE;`
+    2.  Tải lại trạng thái mới nhất từ DB và kiểm tra nếu bài đăng đã đổi sang `"Sold"` hoặc `"Cancelled"` thì hủy giao dịch lập tức. (Ngăn chặn 2 người cùng mua 1 bài đăng đồng thời).
+    3.  Khóa số dư ví của cả người mua và người bán theo thứ tự UUID tăng dần để triệt tiêu deadlock hoàn toàn.
+    4.  Trừ số dư người mua ➔ Khấu trừ thuế giao dịch 5% ➔ Cộng số dư thực nhận vào ví người bán ➔ Chuyển quyền sở hữu vật phẩm sang túi người mua (UPSERT) ➔ Cập nhật trạng thái bài đăng sang `"Sold"` đồng thời ghi nhận **`buyer_id`** và thời gian **`updated_at`** để kiểm toán đầy đủ.
+    5.  Nhật ký tài chính (`Transaction`) được chèn ở trạng thái mặc định **`Pending`** trước khi kết chuyển thành công để đảm bảo quy trình kiểm soát nhà nước an toàn.
+
+```javascript
+async function buyMarketplaceListing(listingId) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return alert("Vui lòng đăng nhập!");
+
+  try {
+    const response = await api.post(`/api/Marketplace/buy/${listingId}`, {}, {
+      headers: { 'Authorization': `Bearer ${session.access_token}` }
+    });
+    
+    // Phản hồi chứa Transaction ghi nhận chi tiết:
+    alert("Giao dịch mua vật phẩm trên chợ thành công!");
+    return response.data.transaction;
+  } catch (error) {
+    alert("Giao dịch thất bại: " + (error.response?.data?.message || "Lỗi hệ thống"));
+  }
+}
+```
+
+### 11.4 Hủy bài đăng bán trên chợ
+*   **Endpoint:** `POST /api/Marketplace/cancel/{listingId}`
+*   **Mô tả:** Bài đăng chuyển sang trạng thái `"Cancelled"`, vật phẩm được tự động hoàn trả lại rương đồ của người bán.
+
+### 11.5 Đặt chỗ giữ hàng trên chợ (New)
+*   **Endpoint:** `POST /api/Marketplace/reserve/{listingId}`
+*   **Xác thực:** Yêu cầu Supabase JWT trong Header `Authorization: Bearer <token>`
+*   **Mô tả:** Đặt chỗ giữ vật phẩm trong **5 phút** để tránh việc người khác mua mất trong khi đang đàm phán hoặc thanh toán. Trạng thái tin rao bán sẽ chuyển từ `"Active"` sang `"Reserved"`.
+*   *Lưu ý:* Hệ thống áp dụng cơ chế tự động dọn dẹp lười biếng (lazy dynamic cleanup). Nếu quá 5 phút mà giao dịch mua chưa hoàn tất, đặt chỗ sẽ tự động bị hủy và đưa tin rao bán quay lại trạng thái `"Active"` ở lần giao dịch tiếp theo.
+
+```javascript
+async function reserveListing(listingId) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return alert("Vui lòng đăng nhập!");
+
+  try {
+    const response = await api.post(`/api/Marketplace/reserve/${listingId}`, {}, {
+      headers: { 'Authorization': `Bearer ${session.access_token}` }
+    });
+    alert("Đã đặt chỗ giữ hàng thành công trong vòng 5 phút!");
+    return response.data.reservation;
+  } catch (error) {
+    alert("Đặt chỗ thất bại: " + (error.response?.data?.message || "Lỗi hệ thống"));
+  }
+}
+```
+
+### 11.6 Giải phóng đặt chỗ giữ hàng (New)
+*   **Endpoint:** `POST /api/Marketplace/release/{listingId}`
+*   **Xác thực:** Yêu cầu Supabase JWT trong Header `Authorization: Bearer <token>`
+*   **Mô tả:** Chủ động hủy đặt chỗ để trả tin rao bán về trạng thái `"Active"` cho người khác mua.
+
+```javascript
+async function releaseListingReservation(listingId) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return;
+
+  try {
+    await api.post(`/api/Marketplace/release/${listingId}`, {}, {
+      headers: { 'Authorization': `Bearer ${session.access_token}` }
+    });
+    alert("Đã giải phóng đặt chỗ thành công!");
+  } catch (error) {
+    console.error("Giải phóng đặt chỗ thất bại:", error);
+  }
+}
+```
+
 ---
 *Tài liệu được thiết kế đồng bộ và bảo mật tuyệt đối cho hệ sinh thái Sử Đại Việt. Chúc nghĩa sĩ tích hợp thành công mỹ mãn!*
 

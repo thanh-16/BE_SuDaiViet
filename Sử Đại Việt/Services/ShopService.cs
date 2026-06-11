@@ -39,109 +39,79 @@ namespace Sử_Đại_Việt.Services
 
         public async Task<Transaction> BuyItemAsync(Guid userId, string itemId, string currency)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
+            // Kiểm tra yêu cầu cấp độ (Level Requirement) từ JSONB attributes của vật phẩm trước khi mua
+            var profile = await _context.Profiles.FirstOrDefaultAsync(p => p.Id == userId);
+            if (profile == null)
             {
-                // 1. Kiểm tra người chơi tồn tại
-                var profile = await _context.Profiles.FirstOrDefaultAsync(p => p.Id == userId);
-                if (profile == null)
-                {
-                    throw new KeyNotFoundException("Không tìm thấy thông tin tài khoản người chơi.");
-                }
+                throw new KeyNotFoundException("Không tìm thấy thông tin tài khoản người chơi.");
+            }
 
-                if (profile.IsBanned)
-                {
-                    throw new InvalidOperationException("Tài khoản của bạn đã bị khóa.");
-                }
+            if (profile.IsBanned)
+            {
+                throw new InvalidOperationException("Tài khoản của bạn đã bị khóa.");
+            }
 
-                // 2. Kiểm tra vật phẩm tồn tại
-                var item = await _context.GameItems.FirstOrDefaultAsync(i => i.Id == itemId);
-                if (item == null)
-                {
-                    throw new KeyNotFoundException($"Không tìm thấy vật phẩm có mã '{itemId}'.");
-                }
+            var item = await _context.GameItems.FirstOrDefaultAsync(i => i.Id == itemId);
+            if (item == null)
+            {
+                throw new KeyNotFoundException($"Không tìm thấy vật phẩm có mã '{itemId}'.");
+            }
 
-                int deductGold = 0;
-                int deductGem = 0;
-
-                // 3. Khấu trừ số dư dựa theo đơn vị tiền tệ yêu cầu
-                if (currency.Equals("Gold", StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrEmpty(item.Attributes))
+            {
+                try
                 {
-                    if (item.PriceGold <= 0)
+                    using var doc = System.Text.Json.JsonDocument.Parse(item.Attributes);
+                    if (doc.RootElement.TryGetProperty("level_requirement", out var levelReqElement) && levelReqElement.TryGetInt32(out var levelReq))
                     {
-                        throw new InvalidOperationException("Vật phẩm này không bán bằng Vàng.");
+                        if (profile.Level < levelReq)
+                        {
+                            throw new InvalidOperationException($"Cấp độ của bạn (Cấp {profile.Level}) không đủ để mua vật phẩm này. Yêu cầu tối thiểu cấp {levelReq}.");
+                        }
                     }
-                    if (profile.GoldBalance < item.PriceGold)
-                    {
-                        throw new InvalidOperationException($"Số dư Vàng không đủ để mua vật phẩm này (Thiếu {item.PriceGold - profile.GoldBalance} Vàng).");
-                    }
-                    profile.GoldBalance -= item.PriceGold;
-                    deductGold = -item.PriceGold;
                 }
-                else if (currency.Equals("Gem", StringComparison.OrdinalIgnoreCase))
+                catch (System.Text.Json.JsonException)
                 {
-                    if (item.PriceGem <= 0)
-                    {
-                        throw new InvalidOperationException("Vật phẩm này không bán bằng Ngọc.");
-                    }
-                    if (profile.GemBalance < item.PriceGem)
-                    {
-                        throw new InvalidOperationException($"Số dư Ngọc không đủ để mua vật phẩm này (Thiếu {item.PriceGem - profile.GemBalance} Ngọc).");
-                    }
-                    profile.GemBalance -= item.PriceGem;
-                    deductGem = -item.PriceGem;
+                    // JSON không hợp lệ, bỏ qua
                 }
-                else
-                {
-                    throw new ArgumentException("Đơn vị tiền tệ thanh toán không hợp lệ. Chỉ chấp nhận Gold hoặc Gem.");
-                }
+            }
 
-                // 4. Cập nhật kho đồ (UPSERT)
-                var inventoryItem = await _context.PlayerInventories
-                    .FirstOrDefaultAsync(pi => pi.UserId == userId && pi.ItemId == itemId);
+            // Gọi Stored Procedure nguyên tử ở cơ sở dữ liệu
+            var resultList = await _context.Database
+                .SqlQueryRaw<string>("SELECT public.buy_shop_item({0}, {1}, {2}) as \"Value\"", userId, itemId, currency)
+                .ToListAsync();
 
-                if (inventoryItem != null)
-                {
-                    inventoryItem.Quantity += 1;
-                    inventoryItem.AcquiredAt = DateTime.UtcNow;
-                }
-                else
-                {
-                    var newInventory = new PlayerInventory
-                    {
-                        UserId = userId,
-                        ItemId = itemId,
-                        Quantity = 1,
-                        AcquiredAt = DateTime.UtcNow
-                    };
-                    _context.PlayerInventories.Add(newInventory);
-                }
+            var result = resultList.FirstOrDefault();
 
-                // 5. Ghi nhận giao dịch
-                var txn = new Transaction
+            if (result != null && result.StartsWith("ERROR:"))
+            {
+                throw new InvalidOperationException(result.Substring(6).Trim());
+            }
+
+            // Stored Procedure tự động cập nhật rương và thêm dòng transaction, chúng ta tải lại transaction mới nhất để trả về
+            var txn = await _context.Transactions
+                .Where(t => t.UserId == userId && t.TransactionType == "Purchase")
+                .OrderByDescending(t => t.CreatedAt)
+                .FirstOrDefaultAsync();
+
+            if (txn == null)
+            {
+                // Thêm fallback transaction để trả về
+                txn = new Transaction
                 {
                     UserId = userId,
                     TransactionType = "Purchase",
                     AmountVnd = 0,
-                    AmountGold = deductGold,
-                    AmountGem = deductGem,
+                    AmountGold = currency.Equals("Gold", StringComparison.OrdinalIgnoreCase) ? -item.PriceGold : 0,
+                    AmountGem = currency.Equals("Gem", StringComparison.OrdinalIgnoreCase) ? -item.PriceGem : 0,
                     PaymentMethod = currency.ToUpper(),
                     ReferenceId = $"BUY-{itemId.ToUpper()}-{Guid.NewGuid().ToString()[..8].ToUpper()}",
                     Status = "Completed",
                     CreatedAt = DateTime.UtcNow
                 };
-
-                _context.Transactions.Add(txn);
-                await _context.SaveChangesAsync();
-
-                await transaction.CommitAsync();
-                return txn;
             }
-            catch (Exception)
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
+
+            return txn;
         }
 
         public async Task<Transaction> ProcessTopupAsync(Guid userId, int amountVnd, string paymentMethod, string? referenceId)
@@ -149,6 +119,9 @@ namespace Sử_Đại_Việt.Services
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
+                // Khóa dòng dữ liệu wallets tránh race condition ví tiền khi nạp tiền
+                await _context.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM public.wallets WHERE user_id = {userId} FOR UPDATE");
+
                 // 1. Kiểm tra người chơi tồn tại
                 var profile = await _context.Profiles.FirstOrDefaultAsync(p => p.Id == userId);
                 if (profile == null)
@@ -161,13 +134,20 @@ namespace Sử_Đại_Việt.Services
                     throw new InvalidOperationException("Tài khoản của bạn đã bị khóa.");
                 }
 
+                var wallet = await _context.Wallets.FirstOrDefaultAsync(w => w.UserId == userId);
+                if (wallet == null)
+                {
+                    throw new KeyNotFoundException("Không tìm thấy thông tin ví của người chơi.");
+                }
+
                 // 2. Quy đổi VNĐ sang Vàng và Ngọc (10,000 VND = 1,000 Gold và 100 Gems)
                 // Công thức: Gold = VND / 10, Gem = VND / 100
                 int creditGold = amountVnd / 10;
                 int creditGem = amountVnd / 100;
 
-                profile.GoldBalance += creditGold;
-                profile.GemBalance += creditGem;
+                wallet.GoldBalance += creditGold;
+                wallet.GemBalance += creditGem;
+                wallet.UpdatedAt = DateTime.UtcNow;
 
                 // 3. Ghi nhận giao dịch
                 var txn = new Transaction
@@ -195,6 +175,112 @@ namespace Sử_Đại_Việt.Services
                 throw;
             }
         }
+
+        public async Task<Transaction> CreatePendingTopupAsync(Guid userId, int amountVnd)
+        {
+            var profile = await _context.Profiles.FirstOrDefaultAsync(p => p.Id == userId);
+            if (profile == null)
+            {
+                throw new KeyNotFoundException("Không tìm thấy thông tin tài khoản người chơi.");
+            }
+
+            if (profile.IsBanned)
+            {
+                throw new InvalidOperationException("Tài khoản của bạn đã bị khóa.");
+            }
+
+            // Quy đổi VNĐ sang Vàng và Ngọc (10,000 VND = 1,000 Gold và 100 Gems)
+            int creditGold = amountVnd / 10;
+            int creditGem = amountVnd / 100;
+
+            var txn = new Transaction
+            {
+                UserId = userId,
+                TransactionType = "Topup",
+                AmountVnd = amountVnd,
+                AmountGold = creditGold,
+                AmountGem = creditGem,
+                PaymentMethod = "PayOS",
+                ReferenceId = null,
+                Status = "Pending",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            _context.Transactions.Add(txn);
+            await _context.SaveChangesAsync();
+
+            return txn;
+        }
+
+        public async Task<Transaction> CompleteTopupAsync(long transactionId, string referenceId)
+        {
+            using var dbTransaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                var txn = await _context.Transactions.FirstOrDefaultAsync(t => t.Id == transactionId);
+                if (txn == null)
+                {
+                    throw new KeyNotFoundException($"Không tìm thấy giao dịch có mã '{transactionId}'.");
+                }
+
+                if (txn.Status == "Completed")
+                {
+                    return txn;
+                }
+
+                if (txn.Status != "Pending")
+                {
+                    throw new InvalidOperationException($"Giao dịch không ở trạng thái chờ xử lý (Trạng thái hiện tại: {txn.Status}).");
+                }
+
+                // Khóa dòng dữ liệu wallets tránh race condition ví tiền khi nạp tiền
+                await _context.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM public.wallets WHERE user_id = {txn.UserId} FOR UPDATE");
+
+                var wallet = await _context.Wallets.FirstOrDefaultAsync(w => w.UserId == txn.UserId);
+                if (wallet == null)
+                {
+                    throw new KeyNotFoundException("Không tìm thấy thông tin ví của người chơi.");
+                }
+
+                wallet.GoldBalance += txn.AmountGold;
+                wallet.GemBalance += txn.AmountGem;
+                wallet.UpdatedAt = DateTime.UtcNow;
+
+                txn.Status = "Completed";
+                txn.ReferenceId = referenceId;
+                txn.UpdatedAt = DateTime.UtcNow;
+
+                await _context.SaveChangesAsync();
+                await dbTransaction.CommitAsync();
+
+                return txn;
+            }
+            catch (Exception)
+            {
+                await dbTransaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        public async Task<Transaction> CancelTopupAsync(long transactionId)
+        {
+            var txn = await _context.Transactions.FirstOrDefaultAsync(t => t.Id == transactionId);
+            if (txn == null)
+            {
+                throw new KeyNotFoundException($"Không tìm thấy giao dịch có mã '{transactionId}'.");
+            }
+
+            if (txn.Status == "Pending")
+            {
+                txn.Status = "Failed";
+                txn.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+            }
+
+            return txn;
+        }
+
 
         public async Task<IEnumerable<Transaction>> GetTransactionsAsync(string? search, int pageIndex, int pageSize)
         {
@@ -271,51 +357,168 @@ namespace Sử_Đại_Việt.Services
 
         public async Task<Profile> AdjustPlayerBalanceAsync(Guid userId, int goldAmount, int gemAmount, string reason, string adminUsername)
         {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                // Khóa dòng wallets tránh race condition
+                await _context.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM public.wallets WHERE user_id = {userId} FOR UPDATE");
+
+                var profile = await _context.Profiles.FirstOrDefaultAsync(p => p.Id == userId);
+                if (profile == null)
+                {
+                    throw new KeyNotFoundException("Không tìm thấy thông tin tài khoản người chơi.");
+                }
+
+                var wallet = await _context.Wallets.FirstOrDefaultAsync(w => w.UserId == userId);
+                if (wallet == null)
+                {
+                    throw new KeyNotFoundException("Không tìm thấy thông tin ví của người chơi.");
+                }
+
+                if (wallet.GoldBalance + goldAmount < 0)
+                {
+                    throw new ArgumentException($"Số dư Vàng không thể âm sau khi trừ. Hiện tại: {wallet.GoldBalance}, yêu cầu trừ: {Math.Abs(goldAmount)}.");
+                }
+
+                if (wallet.GemBalance + gemAmount < 0)
+                {
+                    throw new ArgumentException($"Số dư Ngọc không thể âm sau khi trừ. Hiện tại: {wallet.GemBalance}, yêu cầu trừ: {Math.Abs(gemAmount)}.");
+                }
+
+                int oldGold = wallet.GoldBalance;
+                int oldGem = wallet.GemBalance;
+
+                wallet.GoldBalance += goldAmount;
+                wallet.GemBalance += gemAmount;
+                wallet.UpdatedAt = DateTime.UtcNow;
+
+                var txn = new Transaction
+                {
+                    UserId = userId,
+                    TransactionType = "AdminAdjustment",
+                    AmountVnd = 0,
+                    AmountGold = goldAmount,
+                    AmountGem = gemAmount,
+                    PaymentMethod = "ADMIN",
+                    ReferenceId = $"ADJUST-{Guid.NewGuid().ToString()[..8].ToUpper()}",
+                    Status = "Completed",
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                _context.Transactions.Add(txn);
+                await _context.SaveChangesAsync();
+
+                await _adminLogService.LogActionAsync(
+                    adminUsername,
+                    "AdjustPlayerBalance",
+                    $"Điều chỉnh số dư của '{profile.DisplayName}' ({userId}). Vàng: {oldGold} -> {wallet.GoldBalance} ({goldAmount:+;-;0}), Ngọc: {oldGem} -> {wallet.GemBalance} ({gemAmount:+;-;0}). Lý do: {reason}."
+                );
+
+                await transaction.CommitAsync();
+                return profile;
+            }
+            catch (Exception)
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        public async Task<Profile> AwardPlayerXpAsync(Guid userId, int xpAmount, string adminUsername)
+        {
             var profile = await _context.Profiles.FirstOrDefaultAsync(p => p.Id == userId);
             if (profile == null)
             {
                 throw new KeyNotFoundException("Không tìm thấy thông tin tài khoản người chơi.");
             }
 
-            if (profile.GoldBalance + goldAmount < 0)
+            int oldLevel = profile.Level;
+            int oldXp = profile.Experience;
+            profile.Experience += xpAmount;
+
+            // Auto level up loop
+            while (profile.Experience >= profile.Level * 1000)
             {
-                throw new ArgumentException($"Số dư Vàng không thể âm sau khi trừ. Hiện tại: {profile.GoldBalance}, yêu cầu trừ: {Math.Abs(goldAmount)}.");
+                profile.Experience -= profile.Level * 1000;
+                profile.Level += 1;
             }
 
-            if (profile.GemBalance + gemAmount < 0)
+            await _context.SaveChangesAsync();
+
+            string detailMsg = $"Tặng {xpAmount} XP cho '{profile.DisplayName}' ({userId}). ";
+            if (profile.Level > oldLevel)
             {
-                throw new ArgumentException($"Số dư Ngọc không thể âm sau khi trừ. Hiện tại: {profile.GemBalance}, yêu cầu trừ: {Math.Abs(gemAmount)}.");
+                detailMsg += $"Thăng cấp! Cấp độ: {oldLevel} -> {profile.Level}. XP còn lại: {profile.Experience}.";
+            }
+            else
+            {
+                detailMsg += $"Cấp độ giữ nguyên: {profile.Level}. XP: {oldXp} -> {profile.Experience}.";
             }
 
-            int oldGold = profile.GoldBalance;
-            int oldGem = profile.GemBalance;
+            await _adminLogService.LogActionAsync(
+                adminUsername,
+                "AwardPlayerXp",
+                detailMsg
+            );
 
-            profile.GoldBalance += goldAmount;
-            profile.GemBalance += gemAmount;
+            return profile;
+        }
 
-            var txn = new Transaction
+        public async Task<GameItem> CreateShopItemAsync(GameItem item, string adminUsername)
+        {
+            if (string.IsNullOrWhiteSpace(item.Id))
             {
-                UserId = userId,
-                TransactionType = "AdminAdjustment",
-                AmountVnd = 0,
-                AmountGold = goldAmount,
-                AmountGem = gemAmount,
-                PaymentMethod = "ADMIN",
-                ReferenceId = $"ADJUST-{Guid.NewGuid().ToString()[..8].ToUpper()}",
-                Status = "Completed",
-                CreatedAt = DateTime.UtcNow
-            };
+                throw new ArgumentException("Mã vật phẩm không được để trống.");
+            }
 
-            _context.Transactions.Add(txn);
+            var existing = await _context.GameItems.AnyAsync(i => i.Id == item.Id);
+            if (existing)
+            {
+                throw new InvalidOperationException($"Vật phẩm với mã '{item.Id}' đã tồn tại trong hệ thống.");
+            }
+
+            // Kiểm tra tính hợp lệ của chuỗi Attributes nếu có
+            if (!string.IsNullOrEmpty(item.Attributes))
+            {
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(item.Attributes);
+                }
+                catch (System.Text.Json.JsonException)
+                {
+                    throw new ArgumentException("Chuỗi Attributes không phải là JSON hợp lệ.");
+                }
+            }
+
+            item.CreatedAt = DateTime.UtcNow;
+            _context.GameItems.Add(item);
             await _context.SaveChangesAsync();
 
             await _adminLogService.LogActionAsync(
                 adminUsername,
-                "AdjustPlayerBalance",
-                $"Điều chỉnh số dư của '{profile.DisplayName}' ({userId}). Vàng: {oldGold} -> {profile.GoldBalance} ({goldAmount:+;-;0}), Ngọc: {oldGem} -> {profile.GemBalance} ({gemAmount:+;-;0}). Lý do: {reason}."
+                "CreateShopItem",
+                $"Tạo mới vật phẩm '{item.Id}' ({item.Name}). Loại: {item.ItemType}, Giá Gold: {item.PriceGold}, Giá Gem: {item.PriceGem}, Giá VND: {item.PriceVnd}, Thuộc tính: {item.Attributes ?? "N/A"}."
             );
 
-            return profile;
+            return item;
+        }
+
+        public async Task DeleteShopItemAsync(string itemId, string adminUsername)
+        {
+            var item = await _context.GameItems.FirstOrDefaultAsync(i => i.Id == itemId);
+            if (item == null)
+            {
+                throw new KeyNotFoundException($"Không tìm thấy vật phẩm có mã '{itemId}'.");
+            }
+
+            _context.GameItems.Remove(item);
+            await _context.SaveChangesAsync();
+
+            await _adminLogService.LogActionAsync(
+                adminUsername,
+                "DeleteShopItem",
+                $"Xóa bỏ vật phẩm '{itemId}' ({item.Name}) khỏi hệ thống."
+            );
         }
     }
 }

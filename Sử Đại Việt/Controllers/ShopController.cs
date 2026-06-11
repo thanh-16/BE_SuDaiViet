@@ -8,6 +8,10 @@ using Microsoft.AspNetCore.RateLimiting;
 using Sử_Đại_Việt.Dtos;
 using Sử_Đại_Việt.Models;
 using Sử_Đại_Việt.Services;
+using PayOS;
+using PayOS.Models.V2.PaymentRequests;
+using PayOS.Models.Webhooks;
+using Microsoft.Extensions.Configuration;
 
 namespace Sử_Đại_Việt.Controllers
 {
@@ -16,10 +20,14 @@ namespace Sử_Đại_Việt.Controllers
     public class ShopController : ControllerBase
     {
         private readonly IShopService _shopService;
+        private readonly PayOSClient _payOS;
+        private readonly IConfiguration _configuration;
 
-        public ShopController(IShopService shopService)
+        public ShopController(IShopService shopService, PayOSClient payOS, IConfiguration configuration)
         {
             _shopService = shopService;
+            _payOS = payOS;
+            _configuration = configuration;
         }
 
         /// <summary>
@@ -147,6 +155,107 @@ namespace Sử_Đại_Việt.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, new { message = "Đã xảy ra lỗi hệ thống trong quá trình nạp tiền.", detail = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Tạo link thanh toán nạp tiền bằng PayOS (Yêu cầu JWT Token).
+        /// </summary>
+        [HttpPost("payos/create-link")]
+        [Authorize]
+        [EnableRateLimiting("ScoreSubmitPolicy")]
+        public async Task<IActionResult> CreatePayOSLink([FromBody] CreatePayOSTopupDto model)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                             ?? User.FindFirst("sub")?.Value;
+
+            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            {
+                return Unauthorized(new { message = "Mã định danh người dùng trong Token không hợp lệ hoặc bị thiếu." });
+            }
+
+            try
+            {
+                var transaction = await _shopService.CreatePendingTopupAsync(userId, model.AmountVnd);
+                var returnUrl = _configuration["PayOS:ReturnUrl"] ?? "http://localhost:5173/payment-success";
+                var cancelUrl = _configuration["PayOS:CancelUrl"] ?? "http://localhost:5173/payment-cancel";
+
+                var paymentRequest = new CreatePaymentLinkRequest
+                {
+                    OrderCode = transaction.Id,
+                    Amount = model.AmountVnd,
+                    Description = $"Nap Vang Ngoc {transaction.Id}",
+                    ReturnUrl = returnUrl,
+                    CancelUrl = cancelUrl,
+                    Items = new List<PaymentLinkItem>
+                    {
+                        new PaymentLinkItem
+                        {
+                            Name = "Nạp Vàng Ngọc",
+                            Quantity = 1,
+                            Price = model.AmountVnd
+                        }
+                    }
+                };
+
+                var paymentResult = await _payOS.PaymentRequests.CreateAsync(paymentRequest);
+
+                return Ok(new
+                {
+                    message = "Tạo link thanh toán thành công!",
+                    checkoutUrl = paymentResult.CheckoutUrl,
+                    transactionId = transaction.Id,
+                    amountVnd = transaction.AmountVnd,
+                    status = transaction.Status
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Đã xảy ra lỗi hệ thống trong quá trình tạo link thanh toán.", detail = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Webhook tiếp nhận kết quả thanh toán từ PayOS (Không yêu cầu JWT, tự xác thực chữ ký bảo mật bằng ChecksumKey).
+        /// </summary>
+        [HttpPost("payos/webhook")]
+        public async Task<IActionResult> HandlePayOSWebhook([FromBody] Webhook webhookBody)
+        {
+            try
+            {
+                var verifiedData = await _payOS.Webhooks.VerifyAsync(webhookBody);
+
+                if (webhookBody.Code == "00")
+                {
+                    long transactionId = verifiedData.OrderCode;
+                    string referenceId = verifiedData.Reference;
+
+                    await _shopService.CompleteTopupAsync(transactionId, referenceId);
+                }
+                else
+                {
+                    long transactionId = verifiedData.OrderCode;
+                    await _shopService.CancelTopupAsync(transactionId);
+                }
+
+                return Ok(new { success = true, message = "Xác thực và cập nhật giao dịch PayOS thành công!" });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { success = false, message = "Xác thực chữ ký Webhook thất bại.", detail = ex.Message });
             }
         }
     }

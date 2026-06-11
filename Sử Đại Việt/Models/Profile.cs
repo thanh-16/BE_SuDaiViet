@@ -37,12 +37,12 @@ namespace Sử_Đại_Việt.Models
         public string Role { get; set; } = "player"; // Vai trò trong game: player hoặc admin
 
         [Required]
-        [Column("gold_balance")]
-        public int GoldBalance { get; set; } = 0; // Số dư Vàng
+        [Column("level")]
+        public int Level { get; set; } = 1; // Cấp độ người chơi
 
         [Required]
-        [Column("gem_balance")]
-        public int GemBalance { get; set; } = 0; // Số dư Ngọc (KNB)
+        [Column("experience")]
+        public int Experience { get; set; } = 0; // Kinh nghiệm tích lũy
 
         [Column("created_at")]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

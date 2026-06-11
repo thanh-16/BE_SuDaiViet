@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Sử_Đại_Việt.Data;
+using PayOS;
 using Sử_Đại_Việt.Middleware;
 using Sử_Đại_Việt.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -44,6 +45,19 @@ builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
 builder.Services.AddScoped<IConfigService, ConfigService>();
 builder.Services.AddScoped<IAdminLogService, AdminLogService>();
 builder.Services.AddScoped<IShopService, ShopService>();
+builder.Services.AddScoped<IHeroService, HeroService>();
+builder.Services.AddScoped<IMailService, MailService>();
+builder.Services.AddScoped<IMarketplaceService, MarketplaceService>();
+
+// Đăng ký PayOSClient cho dịch vụ thanh toán
+builder.Services.AddSingleton(sp =>
+{
+    var configuration = sp.GetRequiredService<IConfiguration>();
+    var clientId = configuration["PayOS:ClientId"] ?? throw new InvalidOperationException("PayOS ClientId is missing in appsettings.json.");
+    var apiKey = configuration["PayOS:ApiKey"] ?? throw new InvalidOperationException("PayOS ApiKey is missing in appsettings.json.");
+    var checksumKey = configuration["PayOS:ChecksumKey"] ?? throw new InvalidOperationException("PayOS ChecksumKey is missing in appsettings.json.");
+    return new PayOSClient(clientId, apiKey, checksumKey);
+});
 
 // 3. ĐĂNG KÝ DỊCH VỤ HEALTHCHECKS (Giám sát tình trạng hệ thống và kết nối Database)
 builder.Services.AddHealthChecks()

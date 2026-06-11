@@ -32,5 +32,11 @@ namespace Sử_Đại_Việt.Models
 
         [Column("acquired_at")]
         public DateTime AcquiredAt { get; set; } = DateTime.UtcNow;
+
+        [Column("updated_at")]
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+        [Column("deleted_at")]
+        public DateTime? DeletedAt { get; set; }
     }
 }

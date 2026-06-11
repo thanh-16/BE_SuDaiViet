@@ -37,6 +37,9 @@ namespace Sử_Đại_Việt.Models
         [StringLength(30)]
         public string ItemType { get; set; } = "Consumable"; // Equipment, Consumable, Skin...
 
+        [Column("attributes", TypeName = "jsonb")]
+        public string? Attributes { get; set; } // Các chỉ số động khác (JSON: attack_boost, level_requirement...)
+
         [Column("created_at")]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }

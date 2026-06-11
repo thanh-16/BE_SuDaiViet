@@ -46,9 +46,13 @@ namespace Sử_Đại_Việt.Models
         [Required]
         [Column("status")]
         [StringLength(20)]
-        public string Status { get; set; } = "Completed"; // Pending, Completed, Failed...
+        public string Status { get; set; } = "Pending"; // Pending, Completed, Failed...
 
         [Column("created_at")]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        [Required]
+        [Column("updated_at")]
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     }
 }

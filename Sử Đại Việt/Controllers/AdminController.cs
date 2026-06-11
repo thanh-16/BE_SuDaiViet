@@ -23,13 +23,15 @@ namespace Sử_Đại_Việt.Controllers
         private readonly IConfiguration _configuration;
         private readonly IAdminLogService _adminLogService;
         private readonly IShopService _shopService;
+        private readonly IMailService _mailService;
 
-        public AdminController(ApplicationDbContext context, IConfiguration configuration, IAdminLogService adminLogService, IShopService shopService)
+        public AdminController(ApplicationDbContext context, IConfiguration configuration, IAdminLogService adminLogService, IShopService shopService, IMailService mailService)
         {
             _context = context;
             _configuration = configuration;
             _adminLogService = adminLogService;
             _shopService = shopService;
+            _mailService = mailService;
         }
 
         // Helper check X-Admin-Key
@@ -317,6 +319,154 @@ namespace Sử_Đại_Việt.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, new { message = "Lỗi hệ thống khi điều chỉnh số dư người chơi.", detail = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Tạo mới vật phẩm bán trong shop (Bảo vệ bằng X-Admin-Key).
+        /// </summary>
+        [HttpPost("items")]
+        public async Task<IActionResult> CreateShopItem([FromBody] CreateGameItemDto model)
+        {
+            if (!IsAuthorizedAdmin())
+            {
+                return StatusCode(401, "Truy cập bị từ chối. Mã quản trị X-Admin-Key không chính xác hoặc trống.");
+            }
+
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            try
+            {
+                var item = new GameItem
+                {
+                    Id = model.Id,
+                    Name = model.Name,
+                    Description = model.Description,
+                    PriceGold = model.PriceGold,
+                    PriceGem = model.PriceGem,
+                    PriceVnd = model.PriceVnd,
+                    ItemType = model.ItemType,
+                    Attributes = model.Attributes
+                };
+
+                var created = await _shopService.CreateShopItemAsync(item, "Admin_System");
+                return Ok(new { message = "Tạo mới vật phẩm thành công!", item = created });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Lỗi hệ thống khi tạo mới vật phẩm.", detail = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Xóa bỏ vật phẩm khỏi shop game (Bảo vệ bằng X-Admin-Key).
+        /// </summary>
+        [HttpDelete("items/{id}")]
+        public async Task<IActionResult> DeleteShopItem(string id)
+        {
+            if (!IsAuthorizedAdmin())
+            {
+                return StatusCode(401, "Truy cập bị từ chối. Mã quản trị X-Admin-Key không chính xác hoặc trống.");
+            }
+
+            try
+            {
+                await _shopService.DeleteShopItemAsync(id, "Admin_System");
+                return Ok(new { message = $"Đã xóa vật phẩm '{id}' thành công khỏi shop." });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Lỗi hệ thống khi xóa vật phẩm.", detail = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Cộng điểm kinh nghiệm (XP) cho người chơi và tự động thăng cấp (Bảo vệ bằng X-Admin-Key).
+        /// </summary>
+        [HttpPut("players/{id}/xp")]
+        public async Task<IActionResult> AwardPlayerXp(Guid id, [FromBody] AwardXpDto model)
+        {
+            if (!IsAuthorizedAdmin())
+            {
+                return StatusCode(401, "Truy cập bị từ chối. Mã quản trị X-Admin-Key không chính xác hoặc trống.");
+            }
+
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            try
+            {
+                var profile = await _shopService.AwardPlayerXpAsync(id, model.XpAmount, "Admin_System");
+                return Ok(new
+                {
+                    message = $"Cộng {model.XpAmount} XP thành công!",
+                    profile = profile
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Lỗi hệ thống khi cộng XP cho người chơi.", detail = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Gửi hòm thư đền bù/quà tặng cá nhân hoặc phát sóng toàn server (Bảo vệ bằng X-Admin-Key).
+        /// </summary>
+        [HttpPost("mail")]
+        public async Task<IActionResult> SendMail([FromBody] CreateMailDto model)
+        {
+            if (!IsAuthorizedAdmin())
+            {
+                return StatusCode(401, "Truy cập bị từ chối. Mã quản trị X-Admin-Key không chính xác hoặc trống.");
+            }
+
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            try
+            {
+                var mail = new MailboxItem
+                {
+                    ReceiverId = model.ReceiverId,
+                    Title = model.Title,
+                    Content = model.Content,
+                    Attachments = model.AttachmentsJson,
+                    ExpiredAt = DateTime.UtcNow.AddDays(model.DurationDays)
+                };
+
+                var created = await _mailService.SendMailAsync(mail, "Admin_System");
+                return Ok(new { message = "Gửi hòm thư thành công!", mail = created });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Lỗi hệ thống khi gửi thư từ Admin.", detail = ex.Message });
             }
         }
     }
