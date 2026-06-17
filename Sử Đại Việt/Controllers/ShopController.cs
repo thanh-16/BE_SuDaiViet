@@ -22,12 +22,14 @@ namespace Sử_Đại_Việt.Controllers
         private readonly IShopService _shopService;
         private readonly PayOSClient _payOS;
         private readonly IConfiguration _configuration;
+        private readonly IAdminLogService _adminLog;
 
-        public ShopController(IShopService shopService, PayOSClient payOS, IConfiguration configuration)
+        public ShopController(IShopService shopService, PayOSClient payOS, IConfiguration configuration, IAdminLogService adminLog)
         {
             _shopService = shopService;
             _payOS = payOS;
             _configuration = configuration;
+            _adminLog = adminLog;
         }
 
         /// <summary>
@@ -255,11 +257,22 @@ namespace Sử_Đại_Việt.Controllers
         [HttpPost("payos/webhook")]
         public async Task<IActionResult> HandlePayOSWebhook([FromBody] Webhook webhookBody)
         {
+            string webhookBodyJson = "";
             try
             {
+                webhookBodyJson = System.Text.Json.JsonSerializer.Serialize(webhookBody);
+            }
+            catch {}
+
+            try
+            {
+                await _adminLog.LogActionAsync("PayOS_Webhook", "Webhook_Received", $"Bắt đầu xác thực webhook. Body: {webhookBodyJson}");
+
                 var verifiedData = await _payOS.Webhooks.VerifyAsync(webhookBody);
 
                 long transactionId = verifiedData.OrderCode;
+
+                await _adminLog.LogActionAsync("PayOS_Webhook", "Webhook_Verified", $"Xác thực thành công. OrderCode: {transactionId}");
 
                 if (webhookBody.Code == "00")
                 {
@@ -270,6 +283,7 @@ namespace Sử_Đại_Việt.Controllers
                     }
                     catch (KeyNotFoundException)
                     {
+                        await _adminLog.LogActionAsync("PayOS_Webhook", "Webhook_Success_NoTxn", $"OrderCode {transactionId} không tìm thấy trong DB (Webhook test)");
                         return Ok(new { success = true, message = "Giao dịch không tồn tại trong hệ thống nhưng xác thực chữ ký thành công (Webhook test)." });
                     }
                 }
@@ -281,6 +295,7 @@ namespace Sử_Đại_Việt.Controllers
                     }
                     catch (KeyNotFoundException)
                     {
+                        await _adminLog.LogActionAsync("PayOS_Webhook", "Webhook_Failed_NoTxn", $"OrderCode {transactionId} không tìm thấy trong DB (Webhook test)");
                         return Ok(new { success = true, message = "Giao dịch không tồn tại trong hệ thống nhưng xác thực chữ ký thành công (Webhook test)." });
                     }
                 }
@@ -289,6 +304,7 @@ namespace Sử_Đại_Việt.Controllers
             }
             catch (Exception ex)
             {
+                await _adminLog.LogActionAsync("PayOS_Webhook", "Webhook_Error", $"Xác thực chữ ký Webhook thất bại. Lỗi: {ex.Message}. Chi tiết lỗi: {ex.ToString()}. Body: {webhookBodyJson}");
                 return BadRequest(new { success = false, message = "Xác thực chữ ký Webhook thất bại.", detail = ex.Message });
             }
         }
