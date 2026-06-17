@@ -80,7 +80,7 @@ builder.Services.AddCors(options =>
 
 // 4.5 CẤU HÌNH XÁC THỰC JWT SUPABASE (Google, Facebook...)
 var jwtSecret = builder.Configuration["Supabase:JwtSecret"] ?? "YOUR_SUPABASE_JWT_SECRET";
-var jwtIssuer = builder.Configuration["Supabase:JwtIssuer"] ?? "https://qcxfmenzyzbwwxrpsdm.supabase.co/auth/v1";
+var jwtIssuer = builder.Configuration["Supabase:JwtIssuer"] ?? "https://qcxfmenzyzbzwwxrpsdm.supabase.co/auth/v1";
 var keyBytes = Encoding.UTF8.GetBytes(jwtSecret);
 
 builder.Services.AddAuthentication(options =>
