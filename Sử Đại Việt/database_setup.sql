@@ -670,6 +670,17 @@ DECLARE
     v_end_date TIMESTAMP WITH TIME ZONE := v_start_date + INTERVAL '1 month';
     v_partition_name TEXT := p_table || '_y' || to_char(v_start_date, 'YYYY') || 'm' || to_char(v_start_date, 'MM');
 BEGIN
+    -- Kiểm tra trong pg_catalog để tránh lỗi khóa DDL khi đang có active query
+    IF EXISTS (
+        SELECT 1 
+        FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = LOWER(v_partition_name) 
+          AND n.nspname = 'public'
+    ) THEN
+        RETURN;
+    END IF;
+
     -- 1. Tự động tạo phân vùng nếu chưa có
     EXECUTE format(
         'CREATE TABLE IF NOT EXISTS %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
@@ -729,6 +740,11 @@ $$;
 CREATE OR REPLACE FUNCTION public.route_and_create_partition_trigger()
 RETURNS TRIGGER AS $$
 BEGIN
+    -- Chỉ chạy đối với các bảng cha (Parent tables), tránh chạy lặp trên các bảng con phân vùng (Partition tables)
+    IF TG_TABLE_NAME::text NOT IN ('mailbox', 'battle_logs', 'player_audit_logs', 'transactions') THEN
+        RETURN NEW;
+    END IF;
+
     PERFORM public.ensure_monthly_partition(TG_TABLE_NAME::text, NEW.created_at);
     RETURN NEW;
 END;
