@@ -238,17 +238,30 @@ namespace Sử_Đại_Việt.Controllers
             {
                 var verifiedData = await _payOS.Webhooks.VerifyAsync(webhookBody);
 
+                long transactionId = verifiedData.OrderCode;
+
                 if (webhookBody.Code == "00")
                 {
-                    long transactionId = verifiedData.OrderCode;
                     string referenceId = verifiedData.Reference;
-
-                    await _shopService.CompleteTopupAsync(transactionId, referenceId);
+                    try
+                    {
+                        await _shopService.CompleteTopupAsync(transactionId, referenceId);
+                    }
+                    catch (KeyNotFoundException)
+                    {
+                        return Ok(new { success = true, message = "Giao dịch không tồn tại trong hệ thống nhưng xác thực chữ ký thành công (Webhook test)." });
+                    }
                 }
                 else
                 {
-                    long transactionId = verifiedData.OrderCode;
-                    await _shopService.CancelTopupAsync(transactionId);
+                    try
+                    {
+                        await _shopService.CancelTopupAsync(transactionId);
+                    }
+                    catch (KeyNotFoundException)
+                    {
+                        return Ok(new { success = true, message = "Giao dịch không tồn tại trong hệ thống nhưng xác thực chữ ký thành công (Webhook test)." });
+                    }
                 }
 
                 return Ok(new { success = true, message = "Xác thực và cập nhật giao dịch PayOS thành công!" });
