@@ -31,6 +31,27 @@ namespace Sử_Đại_Việt.Controllers
         }
 
         /// <summary>
+        /// Chuẩn đoán cấu hình PayOS (Kiểm tra xem các key có bị ghi đè sai bởi biến môi trường không).
+        /// </summary>
+        [HttpGet("payos/diagnose")]
+        public IActionResult DiagnosePayOS()
+        {
+            var clientId = _configuration["PayOS:ClientId"];
+            var apiKey = _configuration["PayOS:ApiKey"];
+            var checksumKey = _configuration["PayOS:ChecksumKey"];
+
+            return Ok(new
+            {
+                ClientIdLength = clientId?.Length ?? 0,
+                ClientIdMasked = string.IsNullOrEmpty(clientId) ? "" : $"{(clientId.Length >= 8 ? clientId.Substring(0, 4) : "")}...{(clientId.Length >= 8 ? clientId.Substring(clientId.Length - 4) : "")}",
+                ApiKeyLength = apiKey?.Length ?? 0,
+                ApiKeyMasked = string.IsNullOrEmpty(apiKey) ? "" : $"{(apiKey.Length >= 8 ? apiKey.Substring(0, 4) : "")}...{(apiKey.Length >= 8 ? apiKey.Substring(apiKey.Length - 4) : "")}",
+                ChecksumKeyLength = checksumKey?.Length ?? 0,
+                ChecksumKeyMasked = string.IsNullOrEmpty(checksumKey) ? "" : $"{(checksumKey.Length >= 8 ? checksumKey.Substring(0, 4) : "")}...{(checksumKey.Length >= 8 ? checksumKey.Substring(checksumKey.Length - 4) : "")}"
+            });
+        }
+
+        /// <summary>
         /// Lấy toàn bộ danh sách vật phẩm đang bán trong cửa hàng.
         /// </summary>
         [HttpGet("items")]
