@@ -86,7 +86,7 @@ Dưới đây là ví dụ cách viết code gửi yêu cầu nạp tiền trong
 ```gdscript
 extends Node
 
-const CREATE_LINK_URL = "https://localhost:7198/api/shop/payos/create-link"
+const CREATE_LINK_URL = "https://be-sudaiviet.onrender.com/api/shop/payos/create-link"
 var http_request: HTTPRequest
 
 func _ready():
