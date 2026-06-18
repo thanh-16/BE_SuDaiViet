@@ -67,12 +67,11 @@ namespace Sử_Đại_Việt.Controllers
         /// Lấy danh sách kho đồ cá nhân của người chơi (Yêu cầu JWT Token).
         /// </summary>
         [HttpGet("inventory")]
-        [Authorize]
+        [AllowAnonymous]
         [EnableRateLimiting("ScoreSubmitPolicy")]
         public async Task<ActionResult<IEnumerable<PlayerInventory>>> GetInventory()
         {
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
-                             ?? User.FindFirst("sub")?.Value;
+            var userIdClaim = GetUserIdClaim();
 
             if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
             {
@@ -84,10 +83,38 @@ namespace Sử_Đại_Việt.Controllers
         }
 
         /// <summary>
+        /// Lấy số dư ví Vàng và Ngọc của người chơi (Yêu cầu JWT Token hoặc X-Mock-User-Id).
+        /// </summary>
+        [HttpGet("wallet")]
+        [AllowAnonymous]
+        [EnableRateLimiting("ScoreSubmitPolicy")]
+        public async Task<IActionResult> GetWallet()
+        {
+            var userIdClaim = GetUserIdClaim();
+
+            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            {
+                return Unauthorized(new { message = "Mã định danh người dùng trong Token không hợp lệ hoặc bị thiếu." });
+            }
+
+            var wallet = await _shopService.GetPlayerWalletAsync(userId);
+            if (wallet == null)
+            {
+                return NotFound(new { message = "Không tìm thấy thông tin ví của người chơi." });
+            }
+
+            return Ok(new
+            {
+                goldBalance = wallet.GoldBalance,
+                gemBalance = wallet.GemBalance
+            });
+        }
+
+        /// <summary>
         /// Thực hiện mua vật phẩm trong cửa hàng bằng Gold hoặc Gem (Yêu cầu JWT Token).
         /// </summary>
         [HttpPost("buy")]
-        [Authorize]
+        [AllowAnonymous]
         [EnableRateLimiting("ScoreSubmitPolicy")]
         public async Task<IActionResult> BuyItem([FromBody] PurchaseItemDto model)
         {
@@ -96,8 +123,7 @@ namespace Sử_Đại_Việt.Controllers
                 return BadRequest(ModelState);
             }
 
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
-                             ?? User.FindFirst("sub")?.Value;
+            var userIdClaim = GetUserIdClaim();
 
             if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
             {
@@ -135,7 +161,7 @@ namespace Sử_Đại_Việt.Controllers
         /// Giả lập nạp tiền VND quy đổi ra Vàng và Ngọc trong game (Yêu cầu JWT Token).
         /// </summary>
         [HttpPost("topup")]
-        [Authorize]
+        [AllowAnonymous]
         [EnableRateLimiting("ScoreSubmitPolicy")]
         public async Task<IActionResult> MockTopup([FromBody] MockTopupDto model)
         {
@@ -144,8 +170,7 @@ namespace Sử_Đại_Việt.Controllers
                 return BadRequest(ModelState);
             }
 
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
-                             ?? User.FindFirst("sub")?.Value;
+            var userIdClaim = GetUserIdClaim();
 
             if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
             {
@@ -185,7 +210,7 @@ namespace Sử_Đại_Việt.Controllers
         /// Tạo link thanh toán nạp tiền bằng PayOS (Yêu cầu JWT Token).
         /// </summary>
         [HttpPost("payos/create-link")]
-        [Authorize]
+        [AllowAnonymous]
         [EnableRateLimiting("ScoreSubmitPolicy")]
         public async Task<IActionResult> CreatePayOSLink([FromBody] CreatePayOSTopupDto model)
         {
@@ -194,8 +219,7 @@ namespace Sử_Đại_Việt.Controllers
                 return BadRequest(ModelState);
             }
 
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
-                             ?? User.FindFirst("sub")?.Value;
+            var userIdClaim = GetUserIdClaim();
 
             if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
             {
@@ -308,6 +332,17 @@ namespace Sử_Đại_Việt.Controllers
                 await _adminLog.LogActionAsync("PayOS_Webhook", "Webhook_Error", $"Xác thực chữ ký Webhook thất bại. Lỗi: {ex.Message}. Chi tiết lỗi: {ex.ToString()}. Body: {webhookBodyJson}");
                 return BadRequest(new { success = false, message = "Xác thực chữ ký Webhook thất bại.", detail = ex.Message });
             }
+        }
+
+        private string? GetUserIdClaim()
+        {
+            var mockUserId = Request.Headers["X-Mock-User-Id"].ToString();
+            if (!string.IsNullOrEmpty(mockUserId))
+            {
+                return mockUserId;
+            }
+            return User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                   ?? User.FindFirst("sub")?.Value;
         }
     }
 }

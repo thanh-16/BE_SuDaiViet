@@ -37,6 +37,13 @@ namespace Sử_Đại_Việt.Services
                 .ToListAsync();
         }
 
+        public async Task<Wallet?> GetPlayerWalletAsync(Guid userId)
+        {
+            return await _context.Wallets
+                .AsNoTracking()
+                .FirstOrDefaultAsync(w => w.UserId == userId);
+        }
+
         public async Task<Transaction> BuyItemAsync(Guid userId, string itemId, string currency)
         {
             // Kiểm tra yêu cầu cấp độ (Level Requirement) từ JSONB attributes của vật phẩm trước khi mua
@@ -140,10 +147,10 @@ namespace Sử_Đại_Việt.Services
                     throw new KeyNotFoundException("Không tìm thấy thông tin ví của người chơi.");
                 }
 
-                // 2. Quy đổi VNĐ sang Vàng và Ngọc (10,000 VND = 1,000 Gold và 100 Gems)
-                // Công thức: Gold = VND / 10, Gem = VND / 100
+                // 2. Quy đổi VNĐ sang Vàng và Ngọc (10,000 VND = 1,000 Gold và 10 Gems)
+                // Công thức: Gold = VND / 10, Gem = VND / 1000
                 int creditGold = amountVnd / 10;
-                int creditGem = amountVnd / 100;
+                int creditGem = amountVnd / 1000;
 
                 wallet.GoldBalance += creditGold;
                 wallet.GemBalance += creditGem;
@@ -189,9 +196,9 @@ namespace Sử_Đại_Việt.Services
                 throw new InvalidOperationException("Tài khoản của bạn đã bị khóa.");
             }
 
-            // Quy đổi VNĐ sang Vàng và Ngọc (10,000 VND = 1,000 Gold và 100 Gems)
+            // Quy đổi VNĐ sang Vàng và Ngọc (10,000 VND = 1,000 Gold và 10 Gems)
             int creditGold = amountVnd / 10;
-            int creditGem = amountVnd / 100;
+            int creditGem = amountVnd / 1000;
 
             var txn = new Transaction
             {

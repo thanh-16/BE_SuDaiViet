@@ -18,6 +18,11 @@ namespace Sử_Đại_Việt.Services
         Task<IEnumerable<PlayerInventory>> GetPlayerInventoryAsync(Guid userId);
 
         /// <summary>
+        /// Lấy ví tiền tệ (Vàng, Ngọc) của người chơi.
+        /// </summary>
+        Task<Wallet?> GetPlayerWalletAsync(Guid userId);
+
+        /// <summary>
         /// Xử lý mua vật phẩm bằng Vàng hoặc Ngọc.
         /// </summary>
         Task<Transaction> BuyItemAsync(Guid userId, string itemId, string currency);
