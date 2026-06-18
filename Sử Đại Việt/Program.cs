@@ -219,14 +219,12 @@ var app = builder.Build();
 // Kích hoạt bộ lọc xử lý lỗi toàn cục đầu tiên trong pipeline để bảo vệ mã nguồn
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
-if (app.Environment.IsDevelopment())
+// Luôn kích hoạt Swagger UI để lập trình viên Front-End có thể xem tài liệu và test trực tiếp trên Render
+app.UseSwagger();
+app.UseSwaggerUI(c =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Sử Đại Việt API v1");
-    });
-}
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Sử Đại Việt API v1");
+});
 
 app.UseHttpsRedirection();
 
