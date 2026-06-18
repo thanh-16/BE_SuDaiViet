@@ -115,9 +115,17 @@ sequenceDiagram
 
 #### 3. Lấy lại Số dư ví mới sau khi nạp thành công
 Sau khi người dùng hoàn tất thanh toán trên cổng PayOS, ví sẽ được cộng tự động ở Backend qua Webhook. Frontend chỉ cần gọi API sau để tải lại số dư mới nhất của người chơi để hiển thị lên UI:
-* **Endpoint:** `GET /api/shop/inventory`
-* **Headers:** `Authorization: Bearer <MÃ_JWT_TOKEN>`
-* **Response (Trả về danh sách rương đồ kèm số lượng vàng/ngọc mới nhất).**
+* **Endpoint:** `GET /api/shop/wallet`
+* **Headers:** 
+  - `Authorization: Bearer <MÃ_JWT_TOKEN>` (Nếu chạy môi trường Production thật)
+  - `X-Mock-User-Id: <UUID_NGƯỜI_DÙNG>` (Nếu chạy thử nghiệm/development để bypass JWT xác thực)
+* **Response (Trả về số dư Vàng và Ngọc thực tế của người chơi):**
+  ```json
+  {
+    "goldBalance": 2200,
+    "gemBalance": 220
+  }
+  ```
 
 ---
 
@@ -146,6 +154,8 @@ async function handleTopup(amountVnd, jwtToken) {
 ```
 
 ### Game Client Godot (GDScript):
+
+#### Tạo hóa đơn nạp tiền VietQR (PayOS):
 ```gdscript
 extends Node
 
@@ -157,11 +167,15 @@ func _ready():
     add_child(http)
     http.request_completed.connect(_on_completed)
 
-func start_topup_payment(amount: int, jwt: String):
+func start_topup_payment(amount: int, jwt: String, mock_user_id: String = ""):
     var headers = [
-        "Content-Type: application/json",
-        "Authorization: Bearer " + jwt
+        "Content-Type: application/json"
     ]
+    if not mock_user_id.is_empty():
+        headers.append("X-Mock-User-Id: " + mock_user_id)
+    if not jwt.is_empty():
+        headers.append("Authorization: Bearer " + jwt)
+        
     var body = JSON.stringify({ "amountVnd": amount })
     http.request(BE_URL + "/api/shop/payos/create-link", headers, HTTPClient.METHOD_POST, body)
 
@@ -171,4 +185,30 @@ func _on_completed(result, response_code, headers, body):
         OS.shell_open(res["checkoutUrl"])
     else:
         print("Lỗi tạo hóa đơn nạp tiền!")
+```
+
+#### Truy vấn số dư ví của người chơi:
+```gdscript
+func fetch_wallet_balance(jwt: String, mock_user_id: String = ""):
+    var http_wallet = HTTPRequest.new()
+    add_child(http_wallet)
+    http_wallet.request_completed.connect(
+        func(result, response_code, headers, body):
+            if response_code == 200:
+                var res = JSON.parse_string(body.get_string_from_utf8())
+                var gold = res["goldBalance"]
+                var gem = res["gemBalance"]
+                print("Ví vàng: ", gold, ", Kim cương: ", gem)
+            else:
+                print("Lỗi lấy số dư ví!")
+            http_wallet.queue_free()
+    )
+    
+    var headers = []
+    if not mock_user_id.is_empty():
+        headers.append("X-Mock-User-Id: " + mock_user_id)
+    if not jwt.is_empty():
+        headers.append("Authorization: Bearer " + jwt)
+        
+    http_wallet.request(BE_URL + "/api/shop/wallet", headers, HTTPClient.METHOD_GET)
 ```
