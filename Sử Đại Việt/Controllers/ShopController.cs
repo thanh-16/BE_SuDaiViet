@@ -276,6 +276,37 @@ namespace Sử_Đại_Việt.Controllers
         }
 
         /// <summary>
+        /// Lấy trạng thái của một giao dịch cụ thể để Client thực hiện Polling.
+        /// </summary>
+        [HttpGet("payos/status/{transactionId}")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetTransactionStatus(long transactionId)
+        {
+            try
+            {
+                var transaction = await _shopService.GetTransactionAsync(transactionId);
+                if (transaction == null)
+                {
+                    return NotFound(new { message = $"Không tìm thấy giao dịch với mã '{transactionId}'." });
+                }
+
+                return Ok(new
+                {
+                    transactionId = transaction.Id,
+                    status = transaction.Status,
+                    amountVnd = transaction.AmountVnd,
+                    amountGold = transaction.AmountGold,
+                    amountGem = transaction.AmountGem,
+                    updatedAt = transaction.UpdatedAt
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Đã xảy ra lỗi khi lấy trạng thái giao dịch.", detail = ex.Message });
+            }
+        }
+
+        /// <summary>
         /// Webhook tiếp nhận kết quả thanh toán từ PayOS (Không yêu cầu JWT, tự xác thực chữ ký bảo mật bằng ChecksumKey).
         /// </summary>
         [HttpPost("payos/webhook")]

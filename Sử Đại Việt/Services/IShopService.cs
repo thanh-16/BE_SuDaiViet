@@ -48,6 +48,11 @@ namespace Sử_Đại_Việt.Services
         Task<Transaction> CancelTopupAsync(long transactionId);
 
         /// <summary>
+        /// Lấy chi tiết một giao dịch cụ thể theo ID.
+        /// </summary>
+        Task<Transaction?> GetTransactionAsync(long transactionId);
+
+        /// <summary>
         /// [Admin] Lấy danh sách giao dịch phân trang.
         /// </summary>
         Task<IEnumerable<Transaction>> GetTransactionsAsync(string? search, int pageIndex, int pageSize);

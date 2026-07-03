@@ -288,6 +288,13 @@ namespace Sử_Đại_Việt.Services
             return txn;
         }
 
+        public async Task<Transaction?> GetTransactionAsync(long transactionId)
+        {
+            return await _context.Transactions
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == transactionId);
+        }
+
 
         public async Task<IEnumerable<Transaction>> GetTransactionsAsync(string? search, int pageIndex, int pageSize)
         {

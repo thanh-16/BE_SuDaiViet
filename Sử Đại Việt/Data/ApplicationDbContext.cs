@@ -252,6 +252,29 @@ namespace Sử_Đại_Việt.Data
             modelBuilder.Entity<HeroEquipment>().HasQueryFilter(he => he.DeletedAt == null);
             modelBuilder.Entity<MailboxItem>().HasQueryFilter(m => m.DeletedAt == null);
             modelBuilder.Entity<MarketplaceListing>().HasQueryFilter(ml => ml.DeletedAt == null);
+
+            // 15. Dữ liệu mẫu (Seed Data) cho tất cả các vật phẩm và trang phục trong game
+            var baseDate = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            modelBuilder.Entity<GameItem>().HasData(
+                new GameItem { Id = "tran_thao_son_tra", Name = "Trân Thảo Sơn Trà", Description = "Hồi đầy 100% sinh lực cho nghĩa sĩ ngay tức khắc.", PriceGold = 80, PriceGem = 0, PriceVnd = 0, ItemType = "Consumable", Attributes = "{\"slot\": \"none\", \"effect\": \"heal\", \"value\": 100.0, \"duration\": 0.0}", CreatedAt = baseDate },
+                new GameItem { Id = "linh_dan_hoi_khi", Name = "Linh Đan Hồi Khí", Description = "Nạp đầy Nộ Khí để tung tuyệt kỹ liền tay.", PriceGold = 60, PriceGem = 0, PriceVnd = 0, ItemType = "Consumable", Attributes = "{\"slot\": \"none\", \"effect\": \"rage\", \"value\": 100.0, \"duration\": 0.0}", CreatedAt = baseDate },
+                new GameItem { Id = "ruou_de_quy_nhon", Name = "Rượu Đế Quy Nhơn", Description = "Tăng 30% sát thương trong 30 giây xung trận.", PriceGold = 200, PriceGem = 0, PriceVnd = 0, ItemType = "Consumable", Attributes = "{\"slot\": \"none\", \"effect\": \"dmg_buff\", \"value\": 0.30, \"duration\": 30.0}", CreatedAt = baseDate },
+                new GameItem { Id = "khien_dong_son", Name = "Khiên Đồng Đông Sơn", Description = "Lá chắn đồng bất hoại, miễn nhiễm sát thương 12 giây.", PriceGold = 250, PriceGem = 0, PriceVnd = 0, ItemType = "Consumable", Attributes = "{\"slot\": \"none\", \"effect\": \"shield\", \"value\": 0.0, \"duration\": 12.0}", CreatedAt = baseDate },
+                new GameItem { Id = "co_dao_phuc_sinh", Name = "Cờ Đào Phục Sinh", Description = "Hồi sinh tại trận một lần (50% máu) khi nghĩa sĩ gục ngã.", PriceGold = 500, PriceGem = 0, PriceVnd = 0, ItemType = "Consumable", Attributes = "{\"slot\": \"none\", \"effect\": \"revive\", \"value\": 0.0, \"duration\": 0.0}", CreatedAt = baseDate },
+                
+                new GameItem { Id = "hoang_de_co_dao", Name = "Hoàng Đế Cổ Đao", Description = "Đại đao hoàng triều — vĩnh viễn +12% sát thương.", PriceGold = 640, PriceGem = 0, PriceVnd = 0, ItemType = "Equipment", Attributes = "{\"slot\": \"weapon\", \"effect\": \"equip_dmg\", \"value\": 0.12, \"duration\": 0.0}", CreatedAt = baseDate },
+                new GameItem { Id = "co_kiem_binh_dinh", Name = "Cổ Kiếm Bình Định", Description = "Bảo kiếm khai quốc — vĩnh viễn +18% sát thương.", PriceGold = 1200, PriceGem = 0, PriceVnd = 0, ItemType = "Equipment", Attributes = "{\"slot\": \"weapon\", \"effect\": \"equip_dmg\", \"value\": 0.18, \"duration\": 0.0}", CreatedAt = baseDate },
+                new GameItem { Id = "thiet_thuong_tayson", Name = "Thiết Thương Tây Sơn", Description = "Trường thương bọc sắt — vĩnh viễn +25% sát thương.", PriceGold = 2600, PriceGem = 0, PriceVnd = 0, ItemType = "Equipment", Attributes = "{\"slot\": \"weapon\", \"effect\": \"equip_dmg\", \"value\": 0.25, \"duration\": 0.0}", CreatedAt = baseDate },
+                new GameItem { Id = "song_thiet_con", Name = "Song Thiết Côn", Description = "Côn sắt song đầu — vĩnh viễn +32% sát thương.", PriceGold = 4200, PriceGem = 0, PriceVnd = 0, ItemType = "Equipment", Attributes = "{\"slot\": \"weapon\", \"effect\": \"equip_dmg\", \"value\": 0.32, \"duration\": 0.0}", CreatedAt = baseDate },
+                new GameItem { Id = "than_kinh_tayson", Name = "Tây Sơn Thần Kính", Description = "Thần khí tối thượng — vĩnh viễn +45% sát thương.", PriceGold = 0, PriceGem = 300, PriceVnd = 0, ItemType = "Equipment", Attributes = "{\"slot\": \"weapon\", \"effect\": \"equip_dmg\", \"value\": 0.45, \"duration\": 0.0}", CreatedAt = baseDate },
+                
+                new GameItem { Id = "an_ngoc_hoang_de", Name = "Ấn Ngọc Hoàng Đế", Description = "Ấn ngọc danh giá — biểu tượng bậc đế vương (trang trí hồ sơ).", PriceGold = 0, PriceGem = 120, PriceVnd = 0, ItemType = "Cosmetic", Attributes = "{\"slot\": \"none\", \"effect\": \"none\", \"value\": 0.0, \"duration\": 0.0}", CreatedAt = baseDate },
+                
+                new GameItem { Id = "giap_da_tayson", Name = "Tây Sơn Giáp Da", Description = "Áo giáp da dẻo dai — tăng 20% sinh lực tối đa.", PriceGold = 1000, PriceGem = 0, PriceVnd = 0, ItemType = "Equipment", Attributes = "{\"slot\": \"armor\", \"effect\": \"equip_hp\", \"value\": 0.20, \"duration\": 0.0}", CreatedAt = baseDate },
+                new GameItem { Id = "thiet_giap_tayson", Name = "Tây Sơn Thiết Giáp", Description = "Giáp sắt kiên cố của nghĩa quân — tăng 40% sinh lực tối đa.", PriceGold = 2500, PriceGem = 0, PriceVnd = 0, ItemType = "Equipment", Attributes = "{\"slot\": \"armor\", \"effect\": \"equip_hp\", \"value\": 0.40, \"duration\": 0.0}", CreatedAt = baseDate },
+                new GameItem { Id = "hoang_gia_chien_giap", Name = "Hoàng Gia Chiến Giáp", Description = "Chiến giáp hoàng triều đúc bằng đồng quý — tăng 70% sinh lực tối đa.", PriceGold = 5000, PriceGem = 0, PriceVnd = 0, ItemType = "Equipment", Attributes = "{\"slot\": \"armor\", \"effect\": \"equip_hp\", \"value\": 0.70, \"duration\": 0.0}", CreatedAt = baseDate },
+                new GameItem { Id = "bao_tinh_giap", Name = "Bảo Tinh Giáp", Description = "Thần giáp bảo thạch hộ thân — tăng 100% sinh lực tối đa.", PriceGold = 0, PriceGem = 400, PriceVnd = 0, ItemType = "Equipment", Attributes = "{\"slot\": \"armor\", \"effect\": \"equip_hp\", \"value\": 1.00, \"duration\": 0.0}", CreatedAt = baseDate }
+            );
         }
     }
 }
