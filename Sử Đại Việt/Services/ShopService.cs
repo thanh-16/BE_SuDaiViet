@@ -308,6 +308,7 @@ namespace Sử_Đại_Việt.Services
                 var lowerSearch = search.ToLower();
                 query = query.Where(t =>
                     t.TransactionType.ToLower().Contains(lowerSearch) ||
+                    t.Status.ToLower().Contains(lowerSearch) ||
                     (t.PaymentMethod != null && t.PaymentMethod.ToLower().Contains(lowerSearch)) ||
                     (t.ReferenceId != null && t.ReferenceId.ToLower().Contains(lowerSearch)) ||
                     (t.PlayerProfile != null && t.PlayerProfile.DisplayName.ToLower().Contains(lowerSearch)) ||
@@ -331,6 +332,7 @@ namespace Sử_Đại_Việt.Services
                 var lowerSearch = search.ToLower();
                 query = query.Where(t =>
                     t.TransactionType.ToLower().Contains(lowerSearch) ||
+                    t.Status.ToLower().Contains(lowerSearch) ||
                     (t.PaymentMethod != null && t.PaymentMethod.ToLower().Contains(lowerSearch)) ||
                     (t.ReferenceId != null && t.ReferenceId.ToLower().Contains(lowerSearch)) ||
                     _context.Profiles.Any(p => p.Id == t.UserId && 

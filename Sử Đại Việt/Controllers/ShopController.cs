@@ -310,7 +310,6 @@ namespace Sử_Đại_Việt.Controllers
         /// Webhook tiếp nhận kết quả thanh toán từ PayOS (Không yêu cầu JWT, tự xác thực chữ ký bảo mật bằng ChecksumKey).
         /// </summary>
         [HttpPost("payos/webhook")]
-        [HttpPost("payos/webho")]
         public async Task<IActionResult> HandlePayOSWebhook([FromBody] Webhook webhookBody)
         {
             string webhookBodyJson = "";

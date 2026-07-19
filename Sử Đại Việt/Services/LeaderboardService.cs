@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Sử_Đại_Việt.Data;
 using Sử_Đại_Việt.Models;
 
@@ -11,28 +13,38 @@ namespace Sử_Đại_Việt.Services
     public class LeaderboardService : ILeaderboardService
     {
         private readonly ApplicationDbContext _context;
+        private readonly IMemoryCache _cache;
+        private const string CacheKey = "Leaderboard_Top100";
+        private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(30);
 
-        public LeaderboardService(ApplicationDbContext context)
+        public LeaderboardService(ApplicationDbContext context, IMemoryCache cache)
         {
             _context = context;
+            _cache = cache;
         }
 
-        // Tải danh sách Top 10 hoặc theo số lượng giới hạn
-        public async Task<IEnumerable<Leaderboard>> GetTopScoresAsync(int limit)
+        // Tải danh sách Top Scores sử dụng Cache Top 100 tối ưu hóa
+        public async Task<IEnumerable<Leaderboard>> GetTopScoresAsync(int limit, CancellationToken cancellationToken = default)
         {
-            return await _context.Leaderboards
-                .AsNoTracking()
-                .Include(l => l.Profile)
-                .OrderByDescending(l => l.Score)
-                .Take(limit)
-                .ToListAsync();
+            if (!_cache.TryGetValue(CacheKey, out List<Leaderboard>? top100) || top100 == null)
+            {
+                top100 = await _context.Leaderboards
+                    .AsNoTracking()
+                    .Include(l => l.Profile)
+                    .OrderByDescending(l => l.Score)
+                    .Take(100)
+                    .ToListAsync(cancellationToken);
+                _cache.Set(CacheKey, top100, CacheDuration);
+            }
+
+            return top100.Take(limit);
         }
 
         // Gửi điểm số mới. Nếu đã tồn tại điểm của user_id, cập nhật nếu điểm mới cao hơn (UPSERT)
-        public async Task<Leaderboard?> SubmitScoreAsync(Guid userId, string username, int score, string stageReached)
+        public async Task<Leaderboard?> SubmitScoreAsync(Guid userId, string username, int score, string stageReached, CancellationToken cancellationToken = default)
         {
             // Kiểm tra xem User có tồn tại trong bảng profiles không
-            var profile = await _context.Profiles.FirstOrDefaultAsync(p => p.Id == userId);
+            var profile = await _context.Profiles.FirstOrDefaultAsync(p => p.Id == userId, cancellationToken);
             string finalUsername = username;
 
             if (profile == null)
@@ -53,7 +65,7 @@ namespace Sử_Đại_Việt.Services
             }
 
             var existingRecord = await _context.Leaderboards
-                .FirstOrDefaultAsync(l => l.UserId == userId);
+                .FirstOrDefaultAsync(l => l.UserId == userId, cancellationToken);
 
             Leaderboard resultRecord;
 
@@ -88,31 +100,33 @@ namespace Sử_Đại_Việt.Services
                 resultRecord = existingRecord;
             }
 
-            // Tối ưu hóa hiệu năng: Chỉ gọi SaveChangesAsync đúng 1 lần duy nhất để lưu toàn bộ thay đổi trong 1 giao dịch (Transaction)
-            await _context.SaveChangesAsync();
+            await _context.SaveChangesAsync(cancellationToken);
+            _cache.Remove(CacheKey); // Invalidate Cache
             return resultRecord;
         }
 
-        public async Task<bool> DeleteScoreAsync(long id)
+        public async Task<bool> DeleteScoreAsync(long id, CancellationToken cancellationToken = default)
         {
-            var record = await _context.Leaderboards.FindAsync(id);
+            var record = await _context.Leaderboards.FirstOrDefaultAsync(l => l.Id == id, cancellationToken);
             if (record == null) return false;
 
             _context.Leaderboards.Remove(record);
-            await _context.SaveChangesAsync();
+            await _context.SaveChangesAsync(cancellationToken);
+            _cache.Remove(CacheKey); // Invalidate Cache
             return true;
         }
 
-        public async Task<Leaderboard?> UpdateScoreAsync(long id, int score, string stageReached)
+        public async Task<Leaderboard?> UpdateScoreAsync(long id, int score, string stageReached, CancellationToken cancellationToken = default)
         {
-            var record = await _context.Leaderboards.FindAsync(id);
+            var record = await _context.Leaderboards.FirstOrDefaultAsync(l => l.Id == id, cancellationToken);
             if (record == null) return null;
 
             record.Score = score;
             record.StageReached = stageReached;
             record.UpdatedAt = DateTime.UtcNow;
 
-            await _context.SaveChangesAsync();
+            await _context.SaveChangesAsync(cancellationToken);
+            _cache.Remove(CacheKey); // Invalidate Cache
             return record;
         }
     }

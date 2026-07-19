@@ -35,10 +35,10 @@ if (string.IsNullOrEmpty(jwtSec) || jwtSec == "YOUR_SUPABASE_JWT_SECRET")
     Console.ResetColor();
 }
 
-// 1. CẤU HÌNH KẾT NỐI DATABASE SUPABASE POSTGRESQL (EF Core)
+// 1. CẤU HÌNH KẾT NỐI DATABASE SUPABASE POSTGRESQL (EF Core với Connection Pooling chịu tải cao)
 var connectionString = builder.Configuration.GetConnectionString("SupabaseConnection");
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(connectionString));
+builder.Services.AddDbContextPool<ApplicationDbContext>(options =>
+    options.UseNpgsql(connectionString), poolSize: 1024);
 
 // 2. ĐĂNG KÝ DEPENDENCY INJECTION CHO CÁC DỊCH VỤ LOGIC (DI Services)
 builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
@@ -58,6 +58,9 @@ builder.Services.AddSingleton(sp =>
     var checksumKey = configuration["PayOS:ChecksumKey"] ?? throw new InvalidOperationException("PayOS ChecksumKey is missing in appsettings.json.");
     return new PayOSClient(clientId, apiKey, checksumKey);
 });
+
+// Đăng ký dịch vụ In-Memory Caching để tăng tốc độ truy vấn BXH và Cấu hình game
+builder.Services.AddMemoryCache();
 
 // 3. ĐĂNG KÝ DỊCH VỤ HEALTHCHECKS (Giám sát tình trạng hệ thống và kết nối Database)
 builder.Services.AddHealthChecks()

@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Sử_Đại_Việt.Data;
 using Sử_Đại_Việt.Dtos;
@@ -37,13 +39,13 @@ namespace Sử_Đại_Việt.Controllers
         /// Tải danh sách Top Bảng Vinh Danh.
         /// </summary>
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<Leaderboard>>> GetTopScores([FromQuery] int limit = 10)
+        public async Task<ActionResult<IEnumerable<Leaderboard>>> GetTopScores([FromQuery] int limit = 10, CancellationToken cancellationToken = default)
         {
             // Tối ưu bảo mật: Giới hạn số dòng tối thiểu và tối đa để tránh lỗi cạn kiệt tài nguyên máy chủ
             if (limit <= 0) limit = 10;
             if (limit > 100) limit = 100;
 
-            var scores = await _leaderboardService.GetTopScoresAsync(limit);
+            var scores = await _leaderboardService.GetTopScoresAsync(limit, cancellationToken);
             return Ok(scores);
         }
 
@@ -53,7 +55,7 @@ namespace Sử_Đại_Việt.Controllers
         [HttpPost]
         [Authorize]
         [EnableRateLimiting("ScoreSubmitPolicy")]
-        public async Task<ActionResult<Leaderboard>> SubmitScore([FromBody] SubmitScoreDto model)
+        public async Task<ActionResult<Leaderboard>> SubmitScore([FromBody] SubmitScoreDto model, CancellationToken cancellationToken)
         {
             // Tối ưu bảo mật tối đa: Trích xuất trực tiếp UserId (UUID) từ JWT Claim "sub" của Supabase để chống giả mạo
             var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value 
@@ -65,7 +67,7 @@ namespace Sử_Đại_Việt.Controllers
             }
 
             // Kiểm tra trạng thái tài khoản: Nếu bị khóa (Banned), chặn hoàn toàn việc gửi điểm số
-            var profile = await _context.Profiles.FindAsync(authUserId);
+            var profile = await _context.Profiles.FirstOrDefaultAsync(p => p.Id == authUserId, cancellationToken);
             if (profile != null && profile.IsBanned)
             {
                 return StatusCode(403, "Tài khoản của bạn đã bị khóa do vi phạm điều khoản và chính sách của Sử Đại Việt. Không thể gửi điểm số.");
@@ -76,7 +78,7 @@ namespace Sử_Đại_Việt.Controllers
             var sanitizedStage = model.StageReached.Length > 50 ? model.StageReached.Substring(0, 50) : model.StageReached;
 
             // Sử dụng authUserId đã được giải mã an toàn từ JWT thay vì tin tưởng UserId từ request body của Client
-            var record = await _leaderboardService.SubmitScoreAsync(authUserId, sanitizedUsername, model.Score, sanitizedStage);
+            var record = await _leaderboardService.SubmitScoreAsync(authUserId, sanitizedUsername, model.Score, sanitizedStage, cancellationToken);
             if (record == null)
             {
                 return StatusCode(500, "Lỗi vinh danh điểm số lên cơ sở dữ liệu đền đài.");
@@ -90,7 +92,7 @@ namespace Sử_Đại_Việt.Controllers
         /// </summary>
         [HttpDelete("{id}")]
         [EnableRateLimiting("AdminApiPolicy")]
-        public async Task<IActionResult> DeleteScore(long id)
+        public async Task<IActionResult> DeleteScore(long id, CancellationToken cancellationToken)
         {
             // Kiểm tra bảo mật: Yêu cầu Header X-Admin-Key để xác thực quyền quản trị
             if (!Request.Headers.TryGetValue("X-Admin-Key", out var extractedKey) || 
@@ -99,13 +101,13 @@ namespace Sử_Đại_Việt.Controllers
                 return StatusCode(401, "Truy cập bị từ chối. Mã quản trị X-Admin-Key không chính xác hoặc trống.");
             }
 
-            var record = await _context.Leaderboards.FindAsync(id);
+            var record = await _context.Leaderboards.FirstOrDefaultAsync(l => l.Id == id, cancellationToken);
             if (record == null)
             {
                 return NotFound($"Không tìm thấy điểm số có ID = {id} trên bảng xếp hạng.");
             }
 
-            var success = await _leaderboardService.DeleteScoreAsync(id);
+            var success = await _leaderboardService.DeleteScoreAsync(id, cancellationToken);
             if (!success)
             {
                 return StatusCode(500, "Không thể xóa điểm số khỏi bảng xếp hạng.");
@@ -126,7 +128,7 @@ namespace Sử_Đại_Việt.Controllers
         /// </summary>
         [HttpPut("{id}")]
         [EnableRateLimiting("AdminApiPolicy")]
-        public async Task<ActionResult<Leaderboard>> UpdateScore(long id, [FromBody] AdminUpdateScoreDto model)
+        public async Task<ActionResult<Leaderboard>> UpdateScore(long id, [FromBody] AdminUpdateScoreDto model, CancellationToken cancellationToken)
         {
             // Kiểm tra bảo mật: Yêu cầu Header X-Admin-Key để xác thực quyền quản trị
             if (!Request.Headers.TryGetValue("X-Admin-Key", out var extractedKey) || 
@@ -135,7 +137,7 @@ namespace Sử_Đại_Việt.Controllers
                 return StatusCode(401, "Truy cập bị từ chối. Mã quản trị X-Admin-Key không chính xác hoặc trống.");
             }
 
-            var oldRecord = await _context.Leaderboards.FindAsync(id);
+            var oldRecord = await _context.Leaderboards.FirstOrDefaultAsync(l => l.Id == id, cancellationToken);
             if (oldRecord == null)
             {
                 return NotFound($"Không tìm thấy điểm số có ID = {id} trên bảng xếp hạng.");
@@ -143,7 +145,7 @@ namespace Sử_Đại_Việt.Controllers
 
             string detail = $"Thay đổi điểm của người chơi '{oldRecord.Username}' (UserId = {oldRecord.UserId}) từ (Score={oldRecord.Score}, Stage='{oldRecord.StageReached}') sang (Score={model.Score}, Stage='{model.StageReached}').";
 
-            var updated = await _leaderboardService.UpdateScoreAsync(id, model.Score, model.StageReached);
+            var updated = await _leaderboardService.UpdateScoreAsync(id, model.Score, model.StageReached, cancellationToken);
             if (updated == null)
             {
                 return StatusCode(500, "Lỗi cập nhật điểm số.");

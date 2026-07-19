@@ -190,10 +190,10 @@ CREATE TABLE IF NOT EXISTS public.game_items (
     price_gold INTEGER DEFAULT 0 NOT NULL,                        -- Giá bằng Vàng (Gold)
     price_gem INTEGER DEFAULT 0 NOT NULL,                         -- Giá bằng Ngọc (Gem)
     price_vnd INTEGER DEFAULT 0 NOT NULL,                         -- Giá bằng Tiền mặt VND (cho vật phẩm nạp trực tiếp)
-    item_type VARCHAR(30) DEFAULT 'Consumable' NOT NULL,           -- Loại: 'Equipment', 'Consumable', 'Skin'
+    item_type VARCHAR(30) DEFAULT 'Consumable' NOT NULL,           -- Loại: 'Equipment', 'Consumable', 'Skin', 'Cosmetic'
     attributes JSONB DEFAULT NULL,                                -- Thuộc tính động của vật phẩm (dùng GIN index)
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-    CONSTRAINT chk_item_type CHECK (item_type IN ('Equipment', 'Consumable', 'Skin'))
+    CONSTRAINT chk_item_type CHECK (item_type IN ('Equipment', 'Consumable', 'Skin', 'Cosmetic'))
 );
 
 -- Kích hoạt RLS bảo mật danh mục vật phẩm
@@ -209,11 +209,26 @@ CREATE POLICY "Chỉ hệ thống được quyền thao tác vật phẩm" ON pu
 CREATE INDEX IF NOT EXISTS idx_items_attr_gin ON public.game_items USING GIN (attributes jsonb_path_ops);
 
 -- Chèn dữ liệu vật phẩm mẫu ban đầu
-INSERT INTO public.game_items (id, name, description, price_gold, price_gem, price_vnd, item_type)
+INSERT INTO public.game_items (id, name, description, price_gold, price_gem, price_vnd, item_type, attributes)
 VALUES
-    ('pot_hp_01', 'Bình Trị Thương Lớn', 'Hồi phục 50% sinh lực trong trận chiến trận Rạch Gầm', 500, 0, 0, 'Consumable'),
-    ('sword_hue_01', 'Thuận Thiên Kiếm (Nguyễn Huệ Skin)', 'Diện mạo cực kỳ uy nghi của Quang Trung hoàng đế', 0, 500, 50000, 'Skin'),
-    ('armor_nhac_01', 'Long Lân Giáp', 'Tăng 20% khả năng chống đỡ sát thương', 2000, 50, 0, 'Equipment')
+    ('tran_thao_son_tra', 'Trân Thảo Sơn Trà', 'Hồi đầy 100% sinh lực cho nghĩa sĩ ngay tức khắc.', 80, 0, 0, 'Consumable', '{"slot": "none", "effect": "heal", "value": 100.0, "duration": 0.0}'),
+    ('linh_dan_hoi_khi', 'Linh Đan Hồi Khí', 'Nạp đầy Nộ Khí để tung tuyệt kỹ liền tay.', 60, 0, 0, 'Consumable', '{"slot": "none", "effect": "rage", "value": 100.0, "duration": 0.0}'),
+    ('ruou_de_quy_nhon', 'Rượu Đế Quy Nhơn', 'Tăng 30% sát thương trong 30 giây xung trận.', 200, 0, 0, 'Consumable', '{"slot": "none", "effect": "dmg_buff", "value": 0.30, "duration": 30.0}'),
+    ('khien_dong_son', 'Khiên Đồng Đông Sơn', 'Lá chắn đồng bất hoại, miễn nhiễm sát thương 12 giây.', 250, 0, 0, 'Consumable', '{"slot": "none", "effect": "shield", "value": 0.0, "duration": 12.0}'),
+    ('co_dao_phuc_sinh', 'Cờ Đào Phục Sinh', 'Hồi sinh tại trận một lần (50% máu) khi nghĩa sĩ gục ngã.', 500, 0, 0, 'Consumable', '{"slot": "none", "effect": "revive", "value": 0.0, "duration": 0.0}'),
+    ('hoang_de_co_dao', 'Hoàng Đế Cổ Đao', 'Đại đao hoàng triều — vĩnh viễn +12% sát thương.', 640, 0, 0, 'Equipment', '{"slot": "weapon", "effect": "equip_dmg", "value": 0.12, "duration": 0.0}'),
+    ('co_kiem_binh_dinh', 'Cổ Kiếm Bình Định', 'Bảo kiếm khai quốc — vĩnh viễn +18% sát thương.', 1200, 0, 0, 'Equipment', '{"slot": "weapon", "effect": "equip_dmg", "value": 0.18, "duration": 0.0}'),
+    ('thiet_thuong_tayson', 'Thiết Thương Tây Sơn', 'Trường thương bọc sắt — vĩnh viễn +25% sát thương.', 2600, 0, 0, 'Equipment', '{"slot": "weapon", "effect": "equip_dmg", "value": 0.25, "duration": 0.0}'),
+    ('song_thiet_con', 'Song Thiết Côn', 'Côn sắt song đầu — vĩnh viễn +32% sát thương.', 4200, 0, 0, 'Equipment', '{"slot": "weapon", "effect": "equip_dmg", "value": 0.32, "duration": 0.0}'),
+    ('than_kinh_tayson', 'Tây Sơn Thần Kính', 'Thần khí tối thượng — vĩnh viễn +45% sát thương.', 0, 300, 0, 'Equipment', '{"slot": "weapon", "effect": "equip_dmg", "value": 0.45, "duration": 0.0}'),
+    ('an_ngoc_hoang_de', 'Ấn Ngọc Hoàng Đế', 'Ấn ngọc danh giá — biểu tượng bậc đế vương (trang trí hồ sơ).', 0, 120, 0, 'Cosmetic', '{"slot": "none", "effect": "none", "value": 0.0, "duration": 0.0}'),
+    ('giap_da_tayson', 'Tây Sơn Giáp Da', 'Áo giáp da dẻo dai — tăng 20% sinh lực tối đa.', 1000, 0, 0, 'Equipment', '{"slot": "armor", "effect": "equip_hp", "value": 0.20, "duration": 0.0}'),
+    ('thiet_giap_tayson', 'Tây Sơn Thiết Giáp', 'Giáp sắt kiên cố của nghĩa quân — tăng 40% sinh lực tối đa.', 2500, 0, 0, 'Equipment', '{"slot": "armor", "effect": "equip_hp", "value": 0.40, "duration": 0.0}'),
+    ('hoang_gia_chien_giap', 'Hoàng Gia Chiến Giáp', 'Chiến giáp hoàng triều đúc bằng đồng quý — tăng 70% sinh lực tối đa.', 5000, 0, 0, 'Equipment', '{"slot": "armor", "effect": "equip_hp", "value": 0.70, "duration": 0.0}'),
+    ('bao_tinh_giap', 'Bảo Tinh Giáp', 'Thần giáp bảo thạch hộ thân — tăng 100% sinh lực tối đa.', 0, 400, 0, 'Equipment', '{"slot": "armor", "effect": "equip_hp", "value": 1.00, "duration": 0.0}'),
+    ('equipment_weapon_long_tinh_dao', 'Long Tinh Đao', 'Đại đao khắc họa long hình tôn nghiêm — vĩnh viễn +35% sát thương.', 5000, 150, 0, 'Equipment', '{"slot": "weapon", "effect": "equip_dmg", "value": 0.35, "icon_path": "res://assets/sprites/items/long_tinh_dao.png"}'),
+    ('equipment_armor_hac_ho_giap', 'Hắc Hổ Thiết Giáp', 'Thiết giáp khắc họa hình hổ đen dũng mãnh — tăng 55% sinh lực tối đa.', 3500, 100, 0, 'Equipment', '{"slot": "armor", "effect": "equip_hp", "value": 0.55, "icon_path": "res://assets/sprites/items/hac_ho_giap.png"}'),
+    ('equipment_weapon_than_co_thuong', 'Thần Cơ Thương', 'Bảo khí súng hỏa mai Thần Cơ cải tiến — vĩnh viễn +40% sát thương.', 4500, 200, 0, 'Equipment', '{"slot": "weapon", "effect": "equip_dmg", "value": 0.40, "icon_path": "res://assets/sprites/items/than_co_thuong.png"}')
 ON CONFLICT (id) DO NOTHING;
 
 
@@ -367,6 +382,8 @@ CREATE TABLE IF NOT EXISTS public.player_broadcast_claims (
     id BIGSERIAL PRIMARY KEY,
     user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
     mail_id BIGINT NOT NULL,
+    is_read BOOLEAN DEFAULT true NOT NULL,
+    is_claimed BOOLEAN DEFAULT false NOT NULL,
     claimed_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     CONSTRAINT unique_user_broadcast_claim UNIQUE (user_id, mail_id)
 );
@@ -1062,9 +1079,9 @@ BEGIN
         -- Cập nhật trạng thái nhận quà thư cá nhân
         UPDATE public.mailbox SET is_claimed = true, is_read = true, updated_at = now() WHERE id = p_mail_id;
     ELSE
-        -- Thư Broadcast: Chèn dòng claims nguyên tử chống nhận trùng
-        INSERT INTO public.player_broadcast_claims (user_id, mail_id, claimed_at)
-        VALUES (p_user_id, p_mail_id, now())
+        -- Thư Broadcast: Chèn dòng claims nguyên tử chống nhận trùng (khi nhận quà nghĩa là đã đọc và đã nhận)
+        INSERT INTO public.player_broadcast_claims (user_id, mail_id, is_read, is_claimed, claimed_at)
+        VALUES (p_user_id, p_mail_id, true, true, now())
         ON CONFLICT (user_id, mail_id) DO NOTHING;
         
         GET DIAGNOSTICS v_affected = ROW_COUNT;

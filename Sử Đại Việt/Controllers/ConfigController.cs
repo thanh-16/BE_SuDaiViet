@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Sử_Đại_Việt.Data;
 using Sử_Đại_Việt.Dtos;
@@ -34,9 +36,9 @@ namespace Sử_Đại_Việt.Controllers
         /// Lấy toàn bộ cấu hình chỉ số game từ xa (Sát thương, Tốc độ của 3 anh em Tây Sơn).
         /// </summary>
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<GameConfig>>> GetConfigs()
+        public async Task<ActionResult<IEnumerable<GameConfig>>> GetConfigs(CancellationToken cancellationToken)
         {
-            var configs = await _configService.GetAllConfigsAsync();
+            var configs = await _configService.GetAllConfigsAsync(cancellationToken);
             return Ok(configs);
         }
 
@@ -44,7 +46,7 @@ namespace Sử_Đại_Việt.Controllers
         /// Cập nhật hoặc thêm mới cấu hình cân bằng chỉ số game (Dành cho Web Admin).
         /// </summary>
         [HttpPut]
-        public async Task<ActionResult<GameConfig>> UpdateConfig([FromBody] UpdateConfigDto model)
+        public async Task<ActionResult<GameConfig>> UpdateConfig([FromBody] UpdateConfigDto model, CancellationToken cancellationToken)
         {
             // Kiểm tra bảo mật: Yêu cầu Header X-Admin-Key để xác thực quyền quản trị
             if (!Request.Headers.TryGetValue("X-Admin-Key", out var extractedKey) || 
@@ -59,7 +61,7 @@ namespace Sử_Đại_Việt.Controllers
                 : model.Description;
 
             // Kiểm tra giá trị cũ trước khi cập nhật để lưu log chi tiết
-            var oldConfig = await _context.GameConfigs.FindAsync(model.ConfigKey);
+            var oldConfig = await _context.GameConfigs.FirstOrDefaultAsync(c => c.ConfigKey == model.ConfigKey, cancellationToken);
             string actionDetail;
             if (oldConfig == null)
             {
@@ -70,7 +72,7 @@ namespace Sử_Đại_Việt.Controllers
                 actionDetail = $"Thay đổi cấu hình '{model.ConfigKey}' từ {oldConfig.ConfigValue} sang {model.ConfigValue}. Mô tả mới: {sanitizedDesc}";
             }
 
-            var config = await _configService.UpdateConfigAsync(model.ConfigKey, model.ConfigValue, sanitizedDesc);
+            var config = await _configService.UpdateConfigAsync(model.ConfigKey, model.ConfigValue, sanitizedDesc, cancellationToken);
             if (config == null)
             {
                 return NotFound("Không tìm thấy cấu hình cần cập nhật.");
@@ -86,7 +88,7 @@ namespace Sử_Đại_Việt.Controllers
         /// Xóa cấu hình game từ xa (Dành cho Web Admin).
         /// </summary>
         [HttpDelete("{key}")]
-        public async Task<IActionResult> DeleteConfig(string key)
+        public async Task<IActionResult> DeleteConfig(string key, CancellationToken cancellationToken)
         {
             // Kiểm tra bảo mật: Yêu cầu Header X-Admin-Key để xác thực quyền quản trị
             if (!Request.Headers.TryGetValue("X-Admin-Key", out var extractedKey) || 
@@ -95,7 +97,7 @@ namespace Sử_Đại_Việt.Controllers
                 return StatusCode(401, "Truy cập bị từ chối. Mã quản trị X-Admin-Key không chính xác hoặc trống.");
             }
 
-            var deleted = await _configService.DeleteConfigAsync(key);
+            var deleted = await _configService.DeleteConfigAsync(key, cancellationToken);
             if (!deleted)
             {
                 return NotFound($"Không tìm thấy chỉ số cấu hình '{key}' để xóa.");
