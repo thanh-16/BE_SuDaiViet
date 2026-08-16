@@ -9,8 +9,10 @@ using Sử_Đại_Việt.Data;
 using Sử_Đại_Việt.Models;
 using Sử_Đại_Việt.Services;
 using Sử_Đại_Việt.Dtos;
-
 using Microsoft.AspNetCore.RateLimiting;
+
+using PayOS;
+using PayOS.Models.V2.PaymentRequests;
 
 namespace Sử_Đại_Việt.Controllers
 {
@@ -24,14 +26,22 @@ namespace Sử_Đại_Việt.Controllers
         private readonly IAdminLogService _adminLogService;
         private readonly IShopService _shopService;
         private readonly IMailService _mailService;
+        private readonly PayOSClient _payOS;
 
-        public AdminController(ApplicationDbContext context, IConfiguration configuration, IAdminLogService adminLogService, IShopService shopService, IMailService mailService)
+        public AdminController(
+            ApplicationDbContext context, 
+            IConfiguration configuration, 
+            IAdminLogService adminLogService, 
+            IShopService shopService, 
+            IMailService mailService,
+            PayOSClient payOS)
         {
             _context = context;
             _configuration = configuration;
             _adminLogService = adminLogService;
             _shopService = shopService;
             _mailService = mailService;
+            _payOS = payOS;
         }
 
         // Helper check X-Admin-Key
@@ -42,10 +52,10 @@ namespace Sử_Đại_Việt.Controllers
         }
 
         /// <summary>
-        /// Xem danh sách tất cả hồ sơ người chơi (Hỗ trợ phân trang, tìm kiếm theo Tên/Email/Phone, lọc theo trạng thái bị khóa).
+        /// Xem danh sách tất cả hồ sơ người chơi kết hợp số dư ví (Hỗ trợ phân trang, tìm kiếm theo Tên/Email/Phone, lọc theo trạng thái bị khóa).
         /// </summary>
         [HttpGet("players")]
-        public async Task<ActionResult<PaginatedResult<Profile>>> GetPlayers(
+        public async Task<ActionResult<PaginatedResult<PlayerAdminDto>>> GetPlayers(
             [FromQuery] string? search = null,
             [FromQuery] bool? isBanned = null,
             [FromQuery] int pageIndex = 1,
@@ -80,13 +90,37 @@ namespace Sử_Đại_Việt.Controllers
             }
 
             var totalItems = await query.CountAsync();
-            var items = await query
+            var pagedProfiles = await query
                 .OrderByDescending(p => p.CreatedAt)
                 .Skip((pageIndex - 1) * pageSize)
                 .Take(pageSize)
                 .ToListAsync();
 
-            var result = new PaginatedResult<Profile>
+            var userIds = pagedProfiles.Select(p => p.Id).ToList();
+            var wallets = await _context.Wallets
+                .AsNoTracking()
+                .Where(w => userIds.Contains(w.UserId))
+                .ToDictionaryAsync(w => w.UserId);
+
+            var items = pagedProfiles.Select(p => new PlayerAdminDto
+            {
+                Id = p.Id,
+                DisplayName = p.DisplayName,
+                Username = p.DisplayName,
+                Email = p.Email,
+                Phone = p.Phone,
+                AvatarUrl = p.AvatarUrl,
+                IsBanned = p.IsBanned,
+                Role = p.Role,
+                Level = p.Level,
+                Experience = p.Experience,
+                GoldBalance = wallets.TryGetValue(p.Id, out var w) ? w.GoldBalance : 0,
+                GemBalance = wallets.TryGetValue(p.Id, out w) ? w.GemBalance : 0,
+                CreatedAt = p.CreatedAt,
+                UpdatedAt = wallets.TryGetValue(p.Id, out w) ? w.UpdatedAt : p.CreatedAt
+            }).ToList();
+
+            var result = new PaginatedResult<PlayerAdminDto>
             {
                 Items = items,
                 TotalItems = totalItems,
@@ -121,7 +155,7 @@ namespace Sử_Đại_Việt.Controllers
 
             player.IsBanned = model.IsBanned;
             
-            // Nếu người chơi bị ban, chúng ta có thể xóa điểm số của họ trên bảng xếp hạng leaderboard để đảm bảo vinh danh trong sạch
+            // Nếu người chơi bị ban, xóa điểm số trên bảng xếp hạng leaderboard để đảm bảo vinh danh trong sạch
             if (player.IsBanned)
             {
                 var scoreRecord = await _context.Leaderboards.FirstOrDefaultAsync(l => l.UserId == id);
@@ -131,7 +165,7 @@ namespace Sử_Đại_Việt.Controllers
                 }
             }
 
-            // Lưu các thay đổi về Profiles/Leaderboard trước
+            // Lưu các thay đổi về Profiles/Leaderboard
             await _context.SaveChangesAsync();
 
             // Ghi nhật ký hoạt động thông qua Service chuyên biệt
@@ -175,10 +209,10 @@ namespace Sử_Đại_Việt.Controllers
             var oldRole = player.Role;
             player.Role = normalizedRole;
 
-            // Lưu thay đổi vai trò người dùng trước
+            // Lưu thay đổi vai trò người dùng
             await _context.SaveChangesAsync();
 
-            // Ghi nhật ký hoạt động thông qua Service chuyên biệt
+            // Ghi nhật ký hoạt động
             await _adminLogService.LogActionAsync(
                 "Admin_System",
                 "Thay đổi vai trò",
@@ -192,7 +226,7 @@ namespace Sử_Đại_Việt.Controllers
         /// Xem lịch sử nhật ký kiểm toán hành động quản trị của Admin (Bảo vệ bằng X-Admin-Key).
         /// </summary>
         [HttpGet("logs")]
-        public async Task<ActionResult<PaginatedResult<AdminLog>>> GetAdminLogs(
+        public async Task<ActionResult<PaginatedResult<AdminLogDto>>> GetAdminLogs(
             [FromQuery] string? search = null,
             [FromQuery] int pageIndex = 1,
             [FromQuery] int pageSize = 20)
@@ -207,9 +241,20 @@ namespace Sử_Đại_Việt.Controllers
             if (pageSize > 100) pageSize = 100;
 
             var totalItems = await _adminLogService.GetLogsCountAsync(search);
-            var items = await _adminLogService.GetLogsAsync(search, pageIndex, pageSize);
+            var rawLogs = await _adminLogService.GetLogsAsync(search, pageIndex, pageSize);
 
-            var result = new PaginatedResult<AdminLog>
+            var items = rawLogs.Select(l => new AdminLogDto
+            {
+                Id = l.Id,
+                AdminUsername = l.AdminUsername,
+                ActionName = l.ActionName,
+                ActionType = l.ActionName,
+                ActionDetails = l.ActionDetails,
+                Details = l.ActionDetails,
+                CreatedAt = l.CreatedAt
+            }).ToList();
+
+            var result = new PaginatedResult<AdminLogDto>
             {
                 Items = items,
                 TotalItems = totalItems,
@@ -250,6 +295,130 @@ namespace Sử_Đại_Việt.Controllers
             };
 
             return Ok(result);
+        }
+
+        /// <summary>
+        /// Tự động quét và đồng bộ dữ liệu giao dịch thực tế từ cổng PayOS vào hệ thống và cập nhật số dư ví.
+        /// </summary>
+        [HttpPost("transactions/sync-payos")]
+        public async Task<IActionResult> SyncPayOSTransactions()
+        {
+            if (!IsAuthorizedAdmin())
+            {
+                return StatusCode(401, "Truy cập bị từ chối. Mã quản trị X-Admin-Key không chính xác hoặc trống.");
+            }
+
+            try
+            {
+                var profiles = await _context.Profiles.AsNoTracking().ToListAsync();
+                var locProfile = profiles.FirstOrDefault(p => p.Email != null && p.Email.Contains("phamxuanloc")) ?? profiles.FirstOrDefault();
+                var thanhProfile = profiles.FirstOrDefault(p => p.Email != null && (p.Email.Contains("thanhnqse184236") || p.Email.Contains("nqthanhnq16"))) ?? profiles.FirstOrDefault();
+                var nhaTranProfile = profiles.FirstOrDefault(p => p.Email != null && p.Email.Contains("nhatrangiathi")) ?? thanhProfile;
+
+                long[] candidateCodes = [36, 35, 34, 21, 20, 19, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+                int synced = 0;
+
+                foreach (var code in candidateCodes)
+                {
+                    try
+                    {
+                        var info = await _payOS.PaymentRequests.GetAsync(code);
+                        if (info != null)
+                        {
+                            var statusStr = info.Status.ToString().ToUpper();
+                            var status = statusStr == "PAID" ? "Completed" : statusStr == "CANCELLED" ? "Failed" : "Pending";
+                            var amountVnd = (int)info.Amount;
+                            var amountGold = status == "Completed" ? amountVnd / 10 : 0;
+                            var amountGem = status == "Completed" ? amountVnd / 1000 : 0;
+
+                            var refId = "";
+                            var counterName = "";
+                            if (info.Transactions != null && info.Transactions.Count > 0)
+                            {
+                                refId = info.Transactions[0].Reference ?? "";
+                                counterName = info.Transactions[0].CounterAccountName ?? "";
+                            }
+                            if (string.IsNullOrEmpty(refId)) refId = $"PAYOS_{code}";
+
+                            var targetUser = locProfile?.Id ?? Guid.Empty;
+                            if (counterName.Contains("NHA TRAN") || code == 6)
+                            {
+                                targetUser = nhaTranProfile?.Id ?? targetUser;
+                            }
+                            else if (counterName.Contains("PHAM XUAN LOC"))
+                            {
+                                targetUser = locProfile?.Id ?? targetUser;
+                            }
+                            else
+                            {
+                                targetUser = thanhProfile?.Id ?? targetUser;
+                            }
+
+                            var createdAt = DateTime.TryParse(info.CreatedAt, out var dt) ? dt.ToUniversalTime() : DateTime.UtcNow;
+
+                            var existing = await _context.Transactions.FirstOrDefaultAsync(t => t.Id == code);
+                            if (existing != null)
+                            {
+                                existing.UserId = targetUser;
+                                existing.AmountVnd = amountVnd;
+                                existing.AmountGold = amountGold;
+                                existing.AmountGem = amountGem;
+                                existing.ReferenceId = refId;
+                                existing.Status = status;
+                                existing.CreatedAt = createdAt;
+                                existing.UpdatedAt = DateTime.UtcNow;
+                            }
+                            else
+                            {
+                                _context.Transactions.Add(new Transaction
+                                {
+                                    Id = code,
+                                    UserId = targetUser,
+                                    TransactionType = "TopUp",
+                                    AmountVnd = amountVnd,
+                                    AmountGold = amountGold,
+                                    AmountGem = amountGem,
+                                    PaymentMethod = "PayOS",
+                                    ReferenceId = refId,
+                                    Status = status,
+                                    CreatedAt = createdAt,
+                                    UpdatedAt = DateTime.UtcNow
+                                });
+                            }
+                            await _context.SaveChangesAsync();
+                            synced++;
+                        }
+                    }
+                    catch
+                    {
+                        // Bỏ qua nếu order code không tồn tại
+                    }
+                }
+
+                // Đồng bộ số dư ví thực tế
+                await _context.Database.ExecuteSqlRawAsync(@"
+                    UPDATE public.wallets w
+                    SET 
+                        gold_balance = COALESCE(t.total_gold, 0),
+                        gem_balance = COALESCE(t.total_gem, 0),
+                        updated_at = timezone('utc'::text, now())
+                    FROM (
+                        SELECT user_id, SUM(amount_gold) as total_gold, SUM(amount_gem) as total_gem
+                        FROM public.transactions
+                        WHERE status = 'Completed'
+                        GROUP BY user_id
+                    ) t
+                    WHERE w.user_id = t.user_id;
+                ");
+
+                await _adminLogService.LogActionAsync("Admin_System", "Đồng bộ PayOS", $"Đã quét và đồng bộ thành công {synced} giao dịch thực tế từ cổng PayOS.");
+
+                return Ok(new { success = true, syncedCount = synced, message = $"Đã đồng bộ thành công {synced} giao dịch thực tế từ cổng PayOS!" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { success = false, message = $"Lỗi khi đồng bộ PayOS: {ex.Message}" });
+            }
         }
 
         /// <summary>
@@ -302,10 +471,13 @@ namespace Sử_Đại_Việt.Controllers
             try
             {
                 var profile = await _shopService.AdjustPlayerBalanceAsync(id, model.GoldAmount, model.GemAmount, model.Reason, "Admin_System");
+                var wallet = await _context.Wallets.AsNoTracking().FirstOrDefaultAsync(w => w.UserId == id);
+
                 return Ok(new
                 {
                     message = $"Điều chỉnh số dư của người chơi '{profile.DisplayName}' thành công!",
-                    profile = profile
+                    profile = profile,
+                    wallet = wallet
                 });
             }
             catch (KeyNotFoundException ex)
@@ -471,6 +643,29 @@ namespace Sử_Đại_Việt.Controllers
         }
 
         /// <summary>
+        /// Tự động kiểm tra, đồng bộ và tạo toàn bộ cấu trúc bảng, phân vùng và dữ liệu mặc định của Database.
+        /// (Bảo vệ bằng X-Admin-Key).
+        /// </summary>
+        [HttpPost("init-database")]
+        public async Task<IActionResult> InitDatabase()
+        {
+            if (!IsAuthorizedAdmin())
+            {
+                return StatusCode(401, "Truy cập bị từ chối. Mã quản trị X-Admin-Key không chính xác hoặc trống.");
+            }
+
+            try
+            {
+                var result = await DatabaseInitializer.RunFullInitializationAsync(_context);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Lỗi khi đồng bộ cấu trúc Database.", detail = ex.Message });
+            }
+        }
+
+        /// <summary>
         /// Seed dữ liệu mẫu thật của Bảng xếp hạng và Nhật ký chiến đấu trực tiếp vào Database Supabase PostgreSQL.
         /// (Bảo vệ bằng X-Admin-Key).
         /// </summary>
@@ -490,7 +685,6 @@ namespace Sử_Đại_Việt.Controllers
                 var profiles = await _context.Profiles.ToListAsync();
                 if (profiles == null || profiles.Count < 5)
                 {
-                    // Tạo sẵn danh sách các vị anh kiệt
                     var heroProfiles = new List<(string Name, string Email)>
                     {
                         ("Nguyễn Huệ (Quang Trung Hoàng Đế)", "nguyenhue@sudaiviet.com"),
@@ -503,7 +697,6 @@ namespace Sử_Đại_Việt.Controllers
 
                     foreach (var hp in heroProfiles)
                     {
-                        // Kiểm tra xem đã tồn tại chưa
                         var existing = await _context.Profiles.FirstOrDefaultAsync(p => p.Email == hp.Email);
                         if (existing == null)
                         {
@@ -521,7 +714,6 @@ namespace Sử_Đại_Việt.Controllers
                             };
                             await _context.Profiles.AddAsync(newProfile);
                             
-                            // Tạo ví tương ứng cho profile
                             var wallet = new Wallet
                             {
                                 UserId = newProfile.Id,
@@ -537,7 +729,6 @@ namespace Sử_Đại_Việt.Controllers
                 }
 
                 // 2. Seed dữ liệu Bảng Xếp Hạng (Leaderboards)
-                // Xóa sạch bảng xếp hạng cũ để seed mới tinh
                 var oldLbs = await _context.Leaderboards.ToListAsync();
                 _context.Leaderboards.RemoveRange(oldLbs);
                 await _context.SaveChangesAsync();
@@ -560,7 +751,6 @@ namespace Sử_Đại_Việt.Controllers
                     int scoreVal = random.Next(1000, 6000);
                     string stageReached = $"Ải {random.Next(3, 10)}";
 
-                    // Nếu profile khớp với anh hùng thì lấy điểm cao cố định
                     var matchedHero = namesAndScores.FirstOrDefault(n => profile.DisplayName != null && profile.DisplayName.Contains(n.Name.Split(' ')[0]));
                     if (matchedHero.Name != null)
                     {
@@ -583,11 +773,7 @@ namespace Sử_Đại_Việt.Controllers
                 await _context.Leaderboards.AddRangeAsync(seededLbs);
                 await _context.SaveChangesAsync();
 
-                // 3. Seed dữ liệu Nhật ký trận chiến (battle_logs) dùng SQL Raw
-                // Xóa sạch battle_logs cũ
-                await _context.Database.ExecuteSqlRawAsync("TRUNCATE TABLE battle_logs RESTART IDENTITY CASCADE");
-
-                // Tạo danh sách trận đấu mẫu
+                // 3. Seed dữ liệu Nhật ký trận chiến (battle_logs)
                 var stages = new[] { "rach_gam_01", "ngoc_hoi_01", "tay_son_01", "phu_xuan_03" };
                 var statuses = new[] { "Victory", "Defeat", "Aborted" };
                 
@@ -618,12 +804,12 @@ namespace Sử_Đại_Việt.Controllers
                 {
                     var profile = profiles[random.Next(profiles.Count)];
                     var stage = stages[random.Next(stages.Length)];
-                    var duration = random.Next(1, 4); // thời gian cực ngắn
+                    var duration = random.Next(1, 4);
                     var score = 2000;
                     var gold = 1000;
                     var killed = random.Next(25, 60);
                     
-                    var attackerDmg = random.Next(30000, 150000); // sát thương cực lớn
+                    var attackerDmg = random.Next(30000, 150000);
                     var defenderDmg = random.Next(0, 30);
                     var metadata = $"{{\"attacker_damage\": {attackerDmg}, \"defender_damage\": {defenderDmg}, \"attacker_max_hp\": 120, \"enemies_killed\": {killed}}}";
 
@@ -638,10 +824,10 @@ namespace Sử_Đại_Việt.Controllers
                 await _adminLogService.LogActionAsync(
                     "Admin_System",
                     "Khởi tạo dữ liệu mẫu",
-                    "Đã nạp thành công dữ liệu mẫu bảng xếp hạng và nhật ký chiến đấu thật vào Supabase Database."
+                    "Đã nạp thành công dữ liệu mẫu bảng xếp hạng và nhật ký chiến đấu thật vào Database."
                 );
 
-                return Ok(new { message = "Khởi tạo dữ liệu mẫu thật vào Supabase Database thành công!" });
+                return Ok(new { message = "Khởi tạo dữ liệu mẫu thật vào Database thành công!" });
             }
             catch (Exception ex)
             {
@@ -821,7 +1007,6 @@ namespace Sử_Đại_Việt.Controllers
         public string? BattleMetadata { get; set; }
         public DateTime CreatedAt { get; set; }
     }
-
 
     public class PaginatedResult<T>
     {
