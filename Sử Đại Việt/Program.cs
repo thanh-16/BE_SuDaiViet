@@ -68,13 +68,18 @@ builder.Services.AddHealthChecks()
 
 // 4. CẤU HÌNH CORS ĐỘNG (Đọc cấu hình an toàn từ appsettings.json)
 var allowedOrigins = builder.Configuration.GetSection("CorsSettings:AllowedOrigins").Get<string[]>() 
-                     ?? new[] { "http://localhost:5173", "http://localhost:3000" };
+                     ?? new[] { "http://localhost:5173", "http://localhost:3000", "https://su-dai-viet-admin-fe.vercel.app" };
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp", policy =>
     {
-        policy.WithOrigins(allowedOrigins)
+        policy.SetIsOriginAllowed(origin =>
+              {
+                  if (string.IsNullOrEmpty(origin)) return false;
+                  if (origin.Contains("localhost") || origin.EndsWith(".vercel.app") || origin.Contains("render.com")) return true;
+                  return allowedOrigins.Contains(origin);
+              })
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
