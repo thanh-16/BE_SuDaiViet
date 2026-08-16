@@ -66,9 +66,13 @@ builder.Services.AddMemoryCache();
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<ApplicationDbContext>();
 
-// 4. CẤU HÌNH CORS ĐỘNG (Đọc cấu hình an toàn từ appsettings.json)
+// 4. CẤU HÌNH CORS ĐỘNG (Hỗ trợ Localhost, Vercel, OnRender, Cloud Run, và danh sách AllowedOrigins)
 var allowedOrigins = builder.Configuration.GetSection("CorsSettings:AllowedOrigins").Get<string[]>() 
-                     ?? new[] { "http://localhost:5173", "http://localhost:3000", "https://su-dai-viet-admin-fe.vercel.app" };
+                     ?? new[] { 
+                         "http://localhost:5173", 
+                         "http://localhost:3000", 
+                         "https://su-dai-viet-admin-fe.vercel.app" 
+                     };
 
 builder.Services.AddCors(options =>
 {
@@ -77,7 +81,11 @@ builder.Services.AddCors(options =>
         policy.SetIsOriginAllowed(origin =>
               {
                   if (string.IsNullOrEmpty(origin)) return false;
-                  if (origin.Contains("localhost") || origin.EndsWith(".vercel.app") || origin.Contains("render.com")) return true;
+                  if (origin.Contains("localhost") || 
+                      origin.EndsWith(".vercel.app") || 
+                      origin.Contains("render.com") || 
+                      origin.Contains("run.app") ||
+                      origin.Contains("supabase.co")) return true;
                   return allowedOrigins.Contains(origin);
               })
               .AllowAnyHeader()
@@ -126,7 +134,6 @@ builder.Services.AddRateLimiter(options =>
     // Chính sách 1: ScoreSubmitPolicy cho nghĩa sĩ gửi điểm
     options.AddPolicy("ScoreSubmitPolicy", context =>
     {
-        // Nhận diện theo UserId từ JWT Claim sub, nếu chưa đăng nhập thì fallback theo IP
         var userId = context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value 
                      ?? context.User.FindFirst("sub")?.Value 
                      ?? context.Connection.RemoteIpAddress?.ToString() 
@@ -172,7 +179,6 @@ builder.Services.AddSwaggerGen(c =>
         Description = "Cổng truyền tin REST API phục vụ việc Vinh Danh Bảng Xếp Hạng của Game và Hỗ trợ Web Admin cân bằng chỉ số 3 anh em Tây Sơn."
     });
 
-    // Cấu hình Sơ đồ Bảo mật Header X-Admin-Key trong Swagger
     c.AddSecurityDefinition("ApiKey", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
     {
         Description = "Mã xác thực Admin cấp cao phục vụ việc cân bằng chỉ số. Điền mã khóa của bạn vào ô Value bên dưới (ví dụ: TaySonNghiaQuanKey1789).",
@@ -182,7 +188,6 @@ builder.Services.AddSwaggerGen(c =>
         Scheme = "ApiKeyScheme"
     });
 
-    // Cấu hình Sơ đồ Bảo mật JWT Bearer Token phục vụ việc gửi điểm số an toàn
     c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
     {
         Description = "Nhập mã Token JWT được cấp từ Supabase của bạn theo định dạng: Bearer {token}",
@@ -223,11 +228,19 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-// 6. CẤU HÌNH PIPELINE PIPELINE XỬ LÝ
-// Kích hoạt bộ lọc xử lý lỗi toàn cục đầu tiên trong pipeline để bảo vệ mã nguồn
+// TỰ ĐỘNG KHỞI TẠO VÀ ĐỒNG BỘ DATABASE KHI KHỞI CHẠY HỆ THỐNG
+try
+{
+    await DatabaseInitializer.InitializeAsync(app.Services, app.Logger);
+}
+catch (Exception ex)
+{
+    app.Logger.LogError(ex, "Lỗi không thể khởi tạo database khi khởi chạy.");
+}
+
+// 6. CẤU HÌNH PIPELINE XỬ LÝ
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
-// Luôn kích hoạt Swagger UI để lập trình viên Front-End có thể xem tài liệu và test trực tiếp trên Render
 app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
@@ -236,14 +249,12 @@ app.UseSwaggerUI(c =>
 
 app.UseHttpsRedirection();
 
-// Kích hoạt phân quyền CORS động
 app.UseCors("AllowReactApp");
 
 app.UseAuthentication();
-app.UseRateLimiter(); // Chặn rate limit sau khi đã xác thực JWT để lấy UserId
+app.UseRateLimiter();
 app.UseAuthorization();
 
-// Đăng ký API HealthCheck phục vụ DevOps giám sát tình trạng hệ thống
 app.MapHealthChecks("/health");
 
 app.MapControllers();
