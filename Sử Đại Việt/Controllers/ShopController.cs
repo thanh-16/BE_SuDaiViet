@@ -229,8 +229,8 @@ namespace Sử_Đại_Việt.Controllers
             try
             {
                 var transaction = await _shopService.CreatePendingTopupAsync(userId, model.AmountVnd);
-                var returnUrl = _configuration["PayOS:ReturnUrl"] ?? "http://localhost:5173/payment-success";
-                var cancelUrl = _configuration["PayOS:CancelUrl"] ?? "http://localhost:5173/payment-cancel";
+                var returnUrl = _configuration["PayOS:ReturnUrl"] ?? "https://su-dai-viet-admin-fe.vercel.app/payment-success";
+                var cancelUrl = _configuration["PayOS:CancelUrl"] ?? "https://su-dai-viet-admin-fe.vercel.app/payment-cancel";
 
                 var paymentRequest = new CreatePaymentLinkRequest
                 {
@@ -276,7 +276,7 @@ namespace Sử_Đại_Việt.Controllers
         }
 
         /// <summary>
-        /// Lấy trạng thái của một giao dịch cụ thể để Client thực hiện Polling.
+        /// Lấy trạng thái của một giao dịch cụ thể để Client thực hiện Polling (Tự chuyển Pending -> Failed nếu quá hạn 10 phút hoặc bị hủy).
         /// </summary>
         [HttpGet("payos/status/{transactionId}")]
         [AllowAnonymous]
@@ -290,6 +290,42 @@ namespace Sử_Đại_Việt.Controllers
                     return NotFound(new { message = $"Không tìm thấy giao dịch với mã '{transactionId}'." });
                 }
 
+                if (transaction.Status == "Pending")
+                {
+                    // Tự động hủy nếu giao dịch đã tạo cách đây quá 10 phút
+                    if (transaction.CreatedAt <= DateTime.UtcNow.AddMinutes(-10))
+                    {
+                        transaction = await _shopService.CancelTopupAsync(transactionId);
+                    }
+                    else
+                    {
+                        try
+                        {
+                            var payOSInfo = await _payOS.PaymentRequests.GetAsync(transactionId);
+                            if (payOSInfo != null)
+                            {
+                                string pStatus = payOSInfo.Status.ToString();
+                                if (pStatus == "PAID")
+                                {
+                                    transaction = await _shopService.CompleteTopupAsync(transactionId, payOSInfo.Id);
+                                }
+                                else if (pStatus == "CANCELLED" || pStatus == "EXPIRED" || pStatus == "FAILED")
+                                {
+                                    transaction = await _shopService.CancelTopupAsync(transactionId);
+                                }
+                            }
+                        }
+                        catch (Exception)
+                        {
+                            // Nếu PayOS báo lỗi/link đã đóng và giao dịch > 5 phút -> Chuyển thành Failed
+                            if (transaction.CreatedAt <= DateTime.UtcNow.AddMinutes(-5))
+                            {
+                                transaction = await _shopService.CancelTopupAsync(transactionId);
+                            }
+                        }
+                    }
+                }
+
                 return Ok(new
                 {
                     transactionId = transaction.Id,
@@ -297,12 +333,40 @@ namespace Sử_Đại_Việt.Controllers
                     amountVnd = transaction.AmountVnd,
                     amountGold = transaction.AmountGold,
                     amountGem = transaction.AmountGem,
+                    createdAt = transaction.CreatedAt,
                     updatedAt = transaction.UpdatedAt
                 });
             }
             catch (Exception ex)
             {
                 return StatusCode(500, new { message = "Đã xảy ra lỗi khi lấy trạng thái giao dịch.", detail = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Hủy giao dịch nạp tiền hoặc xác nhận giao dịch đã quá hạn (chuyển Pending -> Failed).
+        /// </summary>
+        [HttpPost("payos/cancel/{transactionId}")]
+        [AllowAnonymous]
+        public async Task<IActionResult> CancelTransaction(long transactionId)
+        {
+            try
+            {
+                var transaction = await _shopService.CancelTopupAsync(transactionId);
+                return Ok(new
+                {
+                    message = "Giao dịch đã được cập nhật trạng thái Thất bại (Failed).",
+                    transactionId = transaction.Id,
+                    status = transaction.Status
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Đã xảy ra lỗi khi hủy giao dịch.", detail = ex.Message });
             }
         }
 

@@ -48,6 +48,11 @@ namespace Sử_Đại_Việt.Services
         Task<Transaction> CancelTopupAsync(long transactionId);
 
         /// <summary>
+        /// Tự động cập nhật toàn bộ các giao dịch Pending quá hạn (quá X phút) thành Failed.
+        /// </summary>
+        Task<int> FailExpiredPendingTransactionsAsync(int expirationMinutes = 10);
+
+        /// <summary>
         /// Lấy chi tiết một giao dịch cụ thể theo ID.
         /// </summary>
         Task<Transaction?> GetTransactionAsync(long transactionId);

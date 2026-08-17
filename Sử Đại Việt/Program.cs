@@ -49,6 +49,9 @@ builder.Services.AddScoped<IHeroService, HeroService>();
 builder.Services.AddScoped<IMailService, MailService>();
 builder.Services.AddScoped<IMarketplaceService, MarketplaceService>();
 
+// Background Service: Tự động quét và chuyển giao dịch Pending quá hạn (> 10 phút) thành Failed
+builder.Services.AddHostedService<Sử_Đại_Việt.Services.ExpiredTransactionCleanupService>();
+
 // Đăng ký PayOSClient cho dịch vụ thanh toán
 builder.Services.AddSingleton(sp =>
 {

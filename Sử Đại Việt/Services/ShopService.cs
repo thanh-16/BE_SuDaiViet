@@ -188,7 +188,14 @@ namespace Sử_Đại_Việt.Services
             var profile = await _context.Profiles.FirstOrDefaultAsync(p => p.Id == userId);
             if (profile == null)
             {
-                throw new KeyNotFoundException("Không tìm thấy thông tin tài khoản người chơi.");
+                profile = new Profile
+                {
+                    Id = userId,
+                    DisplayName = "Nghĩa Sĩ",
+                    CreatedAt = DateTime.UtcNow
+                };
+                _context.Profiles.Add(profile);
+                await _context.SaveChangesAsync();
             }
 
             if (profile.IsBanned)
@@ -247,7 +254,14 @@ namespace Sử_Đại_Việt.Services
                 var wallet = await _context.Wallets.FirstOrDefaultAsync(w => w.UserId == txn.UserId);
                 if (wallet == null)
                 {
-                    throw new KeyNotFoundException("Không tìm thấy thông tin ví của người chơi.");
+                    wallet = new Wallet
+                    {
+                        UserId = txn.UserId,
+                        GoldBalance = 0,
+                        GemBalance = 0,
+                        UpdatedAt = DateTime.UtcNow
+                    };
+                    _context.Wallets.Add(wallet);
                 }
 
                 wallet.GoldBalance += txn.AmountGold;
@@ -286,6 +300,24 @@ namespace Sử_Đại_Việt.Services
             }
 
             return txn;
+        }
+
+        public async Task<int> FailExpiredPendingTransactionsAsync(int expirationMinutes = 10)
+        {
+            var cutoff = DateTime.UtcNow.AddMinutes(-expirationMinutes);
+            var expiredTxns = await _context.Transactions
+                .Where(t => t.Status == "Pending" && t.CreatedAt <= cutoff)
+                .ToListAsync();
+
+            if (expiredTxns.Count == 0) return 0;
+
+            foreach (var txn in expiredTxns)
+            {
+                txn.Status = "Failed";
+                txn.UpdatedAt = DateTime.UtcNow;
+            }
+
+            return await _context.SaveChangesAsync();
         }
 
         public async Task<Transaction?> GetTransactionAsync(long transactionId)
