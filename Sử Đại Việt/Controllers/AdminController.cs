@@ -375,32 +375,28 @@ namespace Sử_Đại_Việt.Controllers
                             var existing = await _context.Transactions.FirstOrDefaultAsync(t => t.Id == code);
                             if (existing != null)
                             {
-                                existing.UserId = targetUser;
-                                existing.AmountVnd = amountVnd;
-                                existing.AmountGold = amountGold;
-                                existing.AmountGem = amountGem;
-                                existing.ReferenceId = refId;
-                                existing.Status = status;
-                                existing.CreatedAt = createdAt;
-                                existing.UpdatedAt = DateTime.UtcNow;
-                            }
-                            else
-                            {
-                                _context.Transactions.Add(new Transaction
+                                // Chỉ cập nhật nếu chưa Completed, hoặc nếu PayOS báo PAID mà DB chưa Completed
+                                if (existing.Status != "Completed" || status == "Completed")
                                 {
-                                    Id = code,
-                                    UserId = targetUser,
-                                    TransactionType = "TopUp",
-                                    AmountVnd = amountVnd,
-                                    AmountGold = amountGold,
-                                    AmountGem = amountGem,
-                                    PaymentMethod = "PayOS",
-                                    ReferenceId = refId,
-                                    Status = status,
-                                    CreatedAt = createdAt,
-                                    UpdatedAt = DateTime.UtcNow
-                                });
+                                    if (status == "Completed" && existing.Status != "Completed")
+                                    {
+                                        // Giao dịch đã được thanh toán trên PayOS nhưng DB chưa cập nhật
+                                        // Sử dụng CompleteTopupAsync để cộng tiền an toàn
+                                        try
+                                        {
+                                            await _shopService.CompleteTopupAsync(code, refId);
+                                        }
+                                        catch { /* Bỏ qua nếu lỗi */ }
+                                    }
+                                    else
+                                    {
+                                        existing.ReferenceId = refId;
+                                        existing.Status = status;
+                                        existing.UpdatedAt = DateTime.UtcNow;
+                                    }
+                                }
                             }
+                            // Không tạo mới giao dịch ở đây để tránh duplicate trong partitioned table
                             await _context.SaveChangesAsync();
                             synced++;
                         }
