@@ -88,5 +88,7 @@ namespace Sử_Đại_Việt.Dtos
         [Required(ErrorMessage = "Số tiền nạp không được để trống")]
         [Range(2000, 100000000, ErrorMessage = "Số tiền nạp tối thiểu là 2,000 VND và tối đa là 100,000,000 VND")]
         public int AmountVnd { get; set; }
+
+        public string? PlayerName { get; set; }
     }
 }

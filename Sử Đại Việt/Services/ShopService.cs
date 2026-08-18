@@ -40,6 +40,13 @@ namespace Sử_Đại_Việt.Services
                 .ToListAsync();
         }
 
+        public async Task<Profile?> GetPlayerProfileAsync(Guid userId)
+        {
+            return await _context.Profiles
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == userId);
+        }
+
         public async Task<Wallet?> GetPlayerWalletAsync(Guid userId)
         {
             return await _context.Wallets
@@ -221,7 +228,8 @@ namespace Sử_Đại_Việt.Services
                 ReferenceId = null,
                 Status = "Pending",
                 CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                UpdatedAt = DateTime.UtcNow,
+                PlayerProfile = profile
             };
 
             _context.Transactions.Add(txn);

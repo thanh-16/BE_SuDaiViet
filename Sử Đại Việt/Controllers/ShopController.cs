@@ -238,11 +238,17 @@ namespace Sử_Đại_Việt.Controllers
                 var returnUrl = _configuration["PayOS:ReturnUrl"] ?? "https://su-dai-viet-admin-fe.vercel.app/payment-success";
                 var cancelUrl = _configuration["PayOS:CancelUrl"] ?? "https://su-dai-viet-admin-fe.vercel.app/payment-cancel";
 
+                var profile = transaction.PlayerProfile ?? await _shopService.GetPlayerProfileAsync(userId);
+                string playerName = !string.IsNullOrWhiteSpace(model.PlayerName) 
+                    ? model.PlayerName 
+                    : (profile?.DisplayName ?? profile?.Email ?? User.Identity?.Name ?? "Nghia Si");
+                string paymentDescription = FormatPayOsDescription(playerName, transaction.Id);
+
                 var paymentRequest = new CreatePaymentLinkRequest
                 {
                     OrderCode = transaction.Id,
                     Amount = model.AmountVnd,
-                    Description = $"Nap Vang Ngoc {transaction.Id}",
+                    Description = paymentDescription,
                     ReturnUrl = returnUrl,
                     CancelUrl = cancelUrl,
                     Items = new List<PaymentLinkItem>
@@ -444,6 +450,64 @@ namespace Sử_Đại_Việt.Controllers
             }
             return User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
                    ?? User.FindFirst("sub")?.Value;
+        }
+
+        /// <summary>
+        /// Chuẩn hóa nội dung chuyển khoản PayOS/VietQR chứa Tên Nhân Vật và Mã Đơn Hàng (tối đa 25 ký tự, ASCII chuẩn).
+        /// </summary>
+        private static string FormatPayOsDescription(string? rawName, long orderCode)
+        {
+            string idStr = orderCode.ToString();
+            string cleanName = RemoveDiacritics(rawName ?? "Nghia Si").Trim().ToUpperInvariant();
+            // Chỉ giữ lại chữ cái A-Z, chữ số 0-9 và khoảng trắng
+            cleanName = System.Text.RegularExpressions.Regex.Replace(cleanName, @"[^A-Z0-9\s]", "");
+            cleanName = System.Text.RegularExpressions.Regex.Replace(cleanName, @"\s+", " ").Trim();
+            if (string.IsNullOrWhiteSpace(cleanName))
+            {
+                cleanName = "NGHIA SI";
+            }
+
+            // Quy định PayOS: Description tối đa 25 ký tự không dấu. Định dạng: "{TÊN USER} {MÃ ĐƠN}"
+            string suffix = " " + idStr;
+            int maxNameLen = 25 - suffix.Length;
+            if (maxNameLen < 1)
+            {
+                string fallback = idStr;
+                return fallback.Length > 25 ? fallback[..25] : fallback;
+            }
+
+            if (cleanName.Length > maxNameLen)
+            {
+                cleanName = cleanName[..maxNameLen].Trim();
+            }
+
+            return $"{cleanName}{suffix}";
+        }
+
+        private static string RemoveDiacritics(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return string.Empty;
+            var normalizedString = text.Normalize(System.Text.NormalizationForm.FormD);
+            var stringBuilder = new System.Text.StringBuilder(capacity: normalizedString.Length);
+
+            for (int i = 0; i < normalizedString.Length; i++)
+            {
+                char c = normalizedString[i];
+                var unicodeCategory = System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c);
+                if (unicodeCategory != System.Globalization.UnicodeCategory.NonSpacingMark)
+                {
+                    if (c == 'đ' || c == 'Đ')
+                    {
+                        stringBuilder.Append(c == 'đ' ? 'd' : 'D');
+                    }
+                    else
+                    {
+                        stringBuilder.Append(c);
+                    }
+                }
+            }
+
+            return stringBuilder.ToString().Normalize(System.Text.NormalizationForm.FormC);
         }
     }
 }
