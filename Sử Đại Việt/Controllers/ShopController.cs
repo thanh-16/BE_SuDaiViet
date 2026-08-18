@@ -231,9 +231,8 @@ namespace Sử_Đại_Việt.Controllers
 
             try
             {
-                // Tự động hủy tất cả đơn Pending cũ của user trước khi tạo đơn mới
-                // (tránh PayOS reject do OrderCode trùng hoặc user có quá nhiều đơn chờ)
-                await _shopService.FailExpiredPendingTransactionsAsync(0, userId);
+                // Tự động hủy các đơn Pending quá hạn (>10 phút) cũ của user trước khi tạo đơn mới
+                await _shopService.FailExpiredPendingTransactionsAsync(10, userId);
 
                 var transaction = await _shopService.CreatePendingTopupAsync(userId, model.AmountVnd);
                 var returnUrl = _configuration["PayOS:ReturnUrl"] ?? "https://su-dai-viet-admin-fe.vercel.app/payment-success";

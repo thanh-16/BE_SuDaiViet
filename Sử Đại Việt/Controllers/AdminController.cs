@@ -283,6 +283,16 @@ namespace Sử_Đại_Việt.Controllers
             if (pageSize < 1) pageSize = 20;
             if (pageSize > 100) pageSize = 100;
 
+            // Tự động chuyển toàn bộ giao dịch Pending quá hạn (> 10 phút) thành Failed trước khi trả dữ liệu
+            try
+            {
+                await _shopService.FailExpiredPendingTransactionsAsync(10);
+            }
+            catch (Exception ex)
+            {
+                await _adminLogService.LogActionAsync("Admin", "FailExpiredPendingTransactions", ex.Message);
+            }
+
             var totalItems = await _shopService.GetTransactionsCountAsync(search);
             var items = await _shopService.GetTransactionsAsync(search, pageIndex, pageSize);
 
@@ -315,7 +325,13 @@ namespace Sử_Đại_Việt.Controllers
                 var thanhProfile = profiles.FirstOrDefault(p => p.Email != null && (p.Email.Contains("thanhnqse184236") || p.Email.Contains("nqthanhnq16"))) ?? profiles.FirstOrDefault();
                 var nhaTranProfile = profiles.FirstOrDefault(p => p.Email != null && p.Email.Contains("nhatrangiathi")) ?? thanhProfile;
 
-                long[] candidateCodes = [36, 35, 34, 21, 20, 19, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+                var dbTxnIds = await _context.Transactions
+                    .OrderByDescending(t => t.Id)
+                    .Take(100)
+                    .Select(t => t.Id)
+                    .ToListAsync();
+
+                var candidateCodes = dbTxnIds.Union(Enumerable.Range(1, 50).Select(i => (long)i)).Distinct().OrderByDescending(c => c).ToList();
                 int synced = 0;
 
                 foreach (var code in candidateCodes)
@@ -418,6 +434,31 @@ namespace Sử_Đại_Việt.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, new { success = false, message = $"Lỗi khi đồng bộ PayOS: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
+        /// Hủy tất cả giao dịch Pending quá hạn (> 10 phút) trên cả DB và PayOS.
+        /// </summary>
+        [HttpPost("cancel-stale-payos")]
+        public async Task<IActionResult> CancelStalePayOSTransactions()
+        {
+            if (!IsAuthorizedAdmin())
+            {
+                return StatusCode(401, "Truy cập bị từ chối. Mã quản trị X-Admin-Key không chính xác hoặc trống.");
+            }
+
+            try
+            {
+                var cancelledCount = await _shopService.FailExpiredPendingTransactionsAsync(10);
+
+                await _adminLogService.LogActionAsync("Admin_System", "Hủy giao dịch quá hạn", $"Đã hủy {cancelledCount} giao dịch Pending quá hạn trên DB và PayOS.");
+
+                return Ok(new { success = true, cancelledCount, message = $"Đã hủy {cancelledCount} giao dịch Pending quá hạn!" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { success = false, message = $"Lỗi khi hủy giao dịch: {ex.Message}" });
             }
         }
 

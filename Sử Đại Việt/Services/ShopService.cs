@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using PayOS;
 using Sử_Đại_Việt.Data;
 using Sử_Đại_Việt.Models;
 
@@ -12,11 +13,13 @@ namespace Sử_Đại_Việt.Services
     {
         private readonly ApplicationDbContext _context;
         private readonly IAdminLogService _adminLogService;
+        private readonly PayOSClient _payOS;
 
-        public ShopService(ApplicationDbContext context, IAdminLogService adminLogService)
+        public ShopService(ApplicationDbContext context, IAdminLogService adminLogService, PayOSClient payOS)
         {
             _context = context;
             _adminLogService = adminLogService;
+            _payOS = payOS;
         }
 
         public async Task<IEnumerable<GameItem>> GetShopItemsAsync()
@@ -243,10 +246,8 @@ namespace Sử_Đại_Việt.Services
                     return txn;
                 }
 
-                if (txn.Status != "Pending")
-                {
-                    throw new InvalidOperationException($"Giao dịch không ở trạng thái chờ xử lý (Trạng thái hiện tại: {txn.Status}).");
-                }
+                // Nếu giao dịch từng bị đánh dấu Failed do quá hạn hoặc tạo link mới,
+                // nhưng PayOS xác nhận tiền đã thực sự về tài khoản ngân hàng, hệ thống vẫn chấp nhận hoàn tất nạp tiền.
 
                 // Khóa dòng dữ liệu wallets tránh race condition ví tiền khi nạp tiền
                 await _context.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM public.wallets WHERE user_id = {txn.UserId} FOR UPDATE");
@@ -297,6 +298,16 @@ namespace Sử_Đại_Việt.Services
                 txn.Status = "Failed";
                 txn.UpdatedAt = DateTime.UtcNow;
                 await _context.SaveChangesAsync();
+
+                // Gửi lệnh hủy link thanh toán trên PayOS
+                try
+                {
+                    await _payOS.PaymentRequests.CancelAsync(transactionId, "Giao dịch bị hủy");
+                }
+                catch
+                {
+                    // Bỏ qua nếu PayOS link không tồn tại
+                }
             }
 
             return txn;
@@ -335,6 +346,16 @@ namespace Sử_Đại_Việt.Services
             {
                 txn.Status = "Failed";
                 txn.UpdatedAt = DateTime.UtcNow;
+
+                // Gửi lệnh hủy link thanh toán trên PayOS để đơn không còn "Chờ thanh toán"
+                try
+                {
+                    await _payOS.PaymentRequests.CancelAsync(txn.Id, "Quá hạn 10 phút không thanh toán");
+                }
+                catch
+                {
+                    // Bỏ qua nếu PayOS link không tồn tại hoặc đã bị hủy trước đó
+                }
             }
 
             return await _context.SaveChangesAsync();
