@@ -243,6 +243,7 @@ catch (Exception ex)
 
 // 6. CẤU HÌNH PIPELINE XỬ LÝ
 app.UseMiddleware<GlobalExceptionMiddleware>();
+app.UseMiddleware<PendingTransactionCleanupMiddleware>(); // Tự động dọn Pending > 10 phút khi có request (fix Render Free Tier sleep)
 
 app.UseSwagger();
 app.UseSwaggerUI(c =>

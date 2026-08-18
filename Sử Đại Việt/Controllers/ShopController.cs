@@ -12,6 +12,7 @@ using PayOS;
 using PayOS.Models.V2.PaymentRequests;
 using PayOS.Models.Webhooks;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace Sử_Đại_Việt.Controllers
 {
@@ -23,13 +24,15 @@ namespace Sử_Đại_Việt.Controllers
         private readonly PayOSClient _payOS;
         private readonly IConfiguration _configuration;
         private readonly IAdminLogService _adminLog;
+        private readonly ILogger<ShopController> _logger;
 
-        public ShopController(IShopService shopService, PayOSClient payOS, IConfiguration configuration, IAdminLogService adminLog)
+        public ShopController(IShopService shopService, PayOSClient payOS, IConfiguration configuration, IAdminLogService adminLog, ILogger<ShopController> logger)
         {
             _shopService = shopService;
             _payOS = payOS;
             _configuration = configuration;
             _adminLog = adminLog;
+            _logger = logger;
         }
 
         /// <summary>
@@ -228,6 +231,10 @@ namespace Sử_Đại_Việt.Controllers
 
             try
             {
+                // Tự động hủy tất cả đơn Pending cũ của user trước khi tạo đơn mới
+                // (tránh PayOS reject do OrderCode trùng hoặc user có quá nhiều đơn chờ)
+                await _shopService.FailExpiredPendingTransactionsAsync(0, userId);
+
                 var transaction = await _shopService.CreatePendingTopupAsync(userId, model.AmountVnd);
                 var returnUrl = _configuration["PayOS:ReturnUrl"] ?? "https://su-dai-viet-admin-fe.vercel.app/payment-success";
                 var cancelUrl = _configuration["PayOS:CancelUrl"] ?? "https://su-dai-viet-admin-fe.vercel.app/payment-cancel";
@@ -271,6 +278,7 @@ namespace Sử_Đại_Việt.Controllers
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "[PayOS] Lỗi tạo link thanh toán cho user {UserId}: {Message}", userIdClaim, ex.Message);
                 return StatusCode(500, new { message = "Đã xảy ra lỗi hệ thống trong quá trình tạo link thanh toán.", detail = ex.Message });
             }
         }

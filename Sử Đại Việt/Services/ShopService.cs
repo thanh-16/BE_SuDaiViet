@@ -304,10 +304,30 @@ namespace Sử_Đại_Việt.Services
 
         public async Task<int> FailExpiredPendingTransactionsAsync(int expirationMinutes = 10)
         {
-            var cutoff = DateTime.UtcNow.AddMinutes(-expirationMinutes);
-            var expiredTxns = await _context.Transactions
-                .Where(t => t.Status == "Pending" && t.CreatedAt <= cutoff)
-                .ToListAsync();
+            return await FailExpiredPendingTransactionsAsync(expirationMinutes, null);
+        }
+
+        /// <summary>
+        /// Chuyển các giao dịch Pending quá hạn thành Failed.
+        /// Nếu userId != null: chỉ xử lý đơn của user đó.
+        /// Nếu expirationMinutes = 0 và userId != null: hủy TẤT CẢ đơn Pending của user (dùng trước khi tạo đơn mới).
+        /// </summary>
+        public async Task<int> FailExpiredPendingTransactionsAsync(int expirationMinutes, Guid? userId)
+        {
+            IQueryable<Transaction> query = _context.Transactions.Where(t => t.Status == "Pending");
+
+            if (userId.HasValue)
+            {
+                query = query.Where(t => t.UserId == userId.Value);
+            }
+
+            if (expirationMinutes > 0)
+            {
+                var cutoff = DateTime.UtcNow.AddMinutes(-expirationMinutes);
+                query = query.Where(t => t.CreatedAt <= cutoff);
+            }
+
+            var expiredTxns = await query.ToListAsync();
 
             if (expiredTxns.Count == 0) return 0;
 

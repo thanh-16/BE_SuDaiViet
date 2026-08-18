@@ -53,6 +53,12 @@ namespace Sử_Đại_Việt.Services
         Task<int> FailExpiredPendingTransactionsAsync(int expirationMinutes = 10);
 
         /// <summary>
+        /// Tự động cập nhật giao dịch Pending quá hạn thành Failed (có thể lọc theo userId).
+        /// expirationMinutes = 0 + userId != null: hủy TẤT CẢ đơn Pending của user.
+        /// </summary>
+        Task<int> FailExpiredPendingTransactionsAsync(int expirationMinutes, Guid? userId);
+
+        /// <summary>
         /// Lấy chi tiết một giao dịch cụ thể theo ID.
         /// </summary>
         Task<Transaction?> GetTransactionAsync(long transactionId);
